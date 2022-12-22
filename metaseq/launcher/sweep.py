@@ -107,6 +107,7 @@ def _get_args(add_extra_options_func=None, input_args: Optional[List[str]] = Non
     parser.add_argument("--grid", help="grid function we used", default=None)
 
     parser.add_argument("-d", "--data", help="path to data directory")
+    parser.add_argument("--valid-subsets", nargs='*', default=[])
     parser.add_argument(
         "-p",
         "--prefix",
@@ -215,7 +216,7 @@ def _get_args(add_extra_options_func=None, input_args: Optional[List[str]] = Non
     parser.add_argument("--aws", action="store_true", help="running on aws")
     parser.add_argument("--fair", action="store_true", help="running on fair")
     parser.add_argument("--rsc", action="store_true", help="running on rsc")
-
+    
     # Azure specific flag
     parser.add_argument(
         "--full-azure-upload-path",
@@ -266,6 +267,7 @@ def _get_args(add_extra_options_func=None, input_args: Optional[List[str]] = Non
     if add_extra_options_func is not None:  # mutates parser
         add_extra_options_func(parser)
     args = parser.parse_args(input_args)
+    args.azure = True
 
     # Env check
     assert (
@@ -290,9 +292,7 @@ def _modify_arg_defaults_based_on_env(env, args):
     else:
         default_checkpoint_dir = os.path.join(
             default_prefix,
-            os.environ["USER"],
-            "checkpoints",
-            str(datetime.date.today()),
+            "checkpoints"
         )
 
     default_cpu_per_task = DEFAULT_CPU_PER_TASK[env]

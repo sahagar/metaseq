@@ -27,6 +27,7 @@ def _get_model_part_num(filename):
 def reshard_mp_shards(
     pth_prefix: str,
     new_model_parts: int,
+    output_path: str,
     save_prefix=None,
     new_arch_name=None,
 ) -> List[str]:
@@ -35,14 +36,17 @@ def reshard_mp_shards(
         logger.info("single file provided, assuming fully consolidated checkpoint")
         pth_prefix = pth_prefix[:-3]
     if save_prefix is None:
-        save_prefix = pth_prefix + "_resharded"  # .pt'
+        save_prefix = "_resharded"  # .pt'
+    save_prefix = output_path + save_prefix
+
+    os.makedirs(os.path.dirname(save_prefix), exist_ok=True)
 
     all_ckpt_files = list(glob(f"{pth_prefix}*.pt"))
     if len(all_ckpt_files) > 1:
         for ckpt_file in all_ckpt_files:
-            assert "shard" not in os.path.basename(ckpt_file)
+            assert "-shard" not in os.path.basename(ckpt_file)
             #  "This script should be run only on fsdp consolidated files"
-            assert "model_part" in os.path.basename(ckpt_file)
+            assert "-model_part" in os.path.basename(ckpt_file)
 
         all_ckpt_files = sorted(all_ckpt_files, key=_get_model_part_num)
 

@@ -52,7 +52,7 @@ def add_extra_options_func(parser):
     )
     parser.add_argument("--model-size", choices=MODEL_SIZES.keys(), required=True)
     parser.add_argument(
-        "--no-save-dir", action="store_true", help="avoid saving with hparams"
+        "--no-save-params", action="store_true", help="avoid saving with hparams"
     )
 
     # Args related to benchmarking and profiling
@@ -67,6 +67,7 @@ def add_extra_options_func(parser):
         action="store_true",
     )
     parser.add_argument("--max-update", "--mu", type=int, default=None)
+    parser.add_argument("--warmup-updates", type=int, default=None)
     parser.add_argument("--max-epoch", "--me", type=int, default=None)
     parser.add_argument(
         "--disable-validation", action="store_true", help="skip doing validation"
@@ -74,12 +75,24 @@ def add_extra_options_func(parser):
     parser.add_argument(
         "--circleci", action="store_true", help="running a baseline test on circleci"
     )
-
+    parser.add_argument("--validate-interval-updates", type=int, default=2000)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--model-parallel", type=int, default=None)
+    # parser.add_argument("--seq-len", type=int, default=None)
+    parser.add_argument("--log-interval", type=int, default=1)
+    parser.add_argument("--task", type=str, default="streaming_language_modeling")
+    parser.add_argument("--vocab-filename", type=str, default="gpt2-vocab.json")
+    parser.add_argument("--merges-filename", type=str, default="gpt2-merges.txt")
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--aim-repo", type=str, default=None)
 
 def get_grid(args):
     # Infer data path if not given
     DATA_ROOT = ""
-    valid_subsets = VALID_SUBSETS
+    if args.valid_subsets == []:
+        valid_subsets = [""]
+    else:    
+        valid_subsets = args.valid_subsets # VALID_SUBSETS
     if not args.benchmark:
         if args.data is None:
             cluster_env = get_env_from_args(args)
@@ -97,13 +110,24 @@ def get_grid(args):
                 )
         else:
             DATA_ROOT = args.data
-            args.data = os.path.join(args.data, "data")
 
     SEQ_LEN = 2048
+    # if args.seq_len:
+    #     SEQ_LEN = args.seq_len
+
     size = MODEL_SIZES[args.model_size]
     # updates = 300B tokens / 2048 seq_len / 1024 batchsize
-
+    
     total_gpus = args.num_gpus * args.num_nodes
+
+    if args.lr:
+        size.lr = args.lr
+    elif args.batch_size:
+        est_bz = (size.batch_size // total_gpus) // SEQ_LEN
+        size.lr = size.lr * round((args.batch_size/est_bz), 6)
+        
+    if args.model_parallel: size.model_parallel = args.model_parallel
+    if args.batch_size: size.batch_size = args.batch_size
 
     # TODO: fix training to run with 1 gpu (see Enable sweep scripts to run with a single GPU #176)
     if args.num_gpus < 2:
@@ -118,19 +142,20 @@ def get_grid(args):
         )
 
     total_gpus = (args.num_gpus * args.num_nodes) // size.model_parallel
-    ddp_bsz = (size.batch_size // total_gpus) // SEQ_LEN
+    ddp_bsz = size.batch_size # (size.batch_size // total_gpus) // SEQ_LEN
     total_updates = args.max_update
     total_epochs = args.max_epoch
     if total_updates is None:
-        total_updates = int(TOTAL_TRAIN_TOKENS) // size.batch_size
-    warmup_updates = int(TOTAL_WARMUP_TOKENS) // size.batch_size
-    log_interval = 1
+        total_updates = int(TOTAL_TRAIN_TOKENS)
+    # warmup_updates = int(TOTAL_WARMUP_TOKENS) // size.batch_size
+    warmup_updates = args.warmup_updates
+    log_interval = args.log_interval
 
     grid = []
 
     # default streaming_lm task config
     task_config = [
-        hyperparam("--task", "streaming_language_modeling"),
+        hyperparam("--task", args.task),
         hyperparam(
             "--sample-break-mode",
             "none",
@@ -138,11 +163,12 @@ def get_grid(args):
         ),
         hyperparam(
             "--vocab-filename",
-            os.path.join(DATA_ROOT, "tokenizers/gpt2-vocab.json"),
+            args.vocab_filename,
             save_dir_key=lambda _: "gpt2" if not no_save_params else "",
         ),
         hyperparam(
-            "--merges-filename", os.path.join(DATA_ROOT, "tokenizers/gpt2-merges.txt")
+            "--merges-filename",
+            args.merges_filename,
         ),
     ]
 
@@ -167,8 +193,8 @@ def get_grid(args):
     if args.profile:
         grid += [hyperparam("--profile")]
 
-    no_save_params = args.no_save_dir
-    args.snapshot_code = True
+    no_save_params = args.no_save_params
+    args.snapshot_code = False
 
     if not args.benchmark:
         grid += [
@@ -183,7 +209,7 @@ def get_grid(args):
         hyperparam("--ignore-unused-valid-subsets"),
         hyperparam("--num-workers", 8),
         hyperparam("--num-workers-valid", 1),
-        hyperparam("--validate-interval-updates", 2000),
+        hyperparam("--validate-interval-updates", args.validate_interval_updates),
         hyperparam(
             "--memory-efficient-fp16",
             save_dir_key=lambda val: "me_fp16" if not no_save_params else "",
@@ -196,7 +222,7 @@ def get_grid(args):
             "fully_sharded",
             save_dir_key=lambda val: "fsdp" if not no_save_params else "",
         ),
-        hyperparam("--no-reshard-after-forward", save_dir_key=lambda _: "zero2"),
+        hyperparam("--no-reshard-after-forward", save_dir_key=lambda _: "zero2" if not no_save_params else ""),
         hyperparam("--use-sharded-state"),
         hyperparam("--checkpoint-activations"),
         hyperparam("--model-parallel-size", size.model_parallel),
@@ -243,7 +269,7 @@ def get_grid(args):
             SEQ_LEN,
             save_dir_key=lambda val: f"tps{val}" if not no_save_params else "",
         ),
-        hyperparam("--optimizer", "adam", save_dir_key=lambda val: val),
+        hyperparam("--optimizer", "adam", save_dir_key=lambda val: val if not no_save_params else ""),
         # GPT-3 uses "(0.9, 0.95)"
         hyperparam(
             "--adam-betas",
@@ -341,6 +367,8 @@ def get_grid(args):
                 save_dir_key=lambda val: f"me{val}" if not no_save_params else "",
             )
         ]
+    if args.aim_repo:
+        grid += [hyperparam("--aim-repo", args.aim_repo)]
 
     return grid
 

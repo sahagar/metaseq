@@ -1,0 +1,78 @@
+description: OPT_Download_Models
+
+target:
+  service: amlk8s
+  # run "amlt target list amlk8s" to list the names of available AMLK8s targets
+  name: itphyperdgx2cl1
+  vc: hai3
+
+environment:
+  image: metaseq-opt:latest
+  username: metaseqopt
+  registry: metaseqopt.azurecr.io
+    
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: ../../../../
+
+storage:
+  model_storage:
+    storage_account_name: sahagar
+    container_name: data
+    mount_dir: /mnt/model_storage_dir
+
+  output:
+    storage_account_name: sahagar
+    container_name: amulet-output
+    mount_dir: /mnt/output_dir
+
+jobs:
+  - name: OPT_Model_Download_Job
+    sku: 1xG0
+    command:
+      - set -ex
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/
+      # download dependencies
+      - wget http://dl.fbaipublicfiles.com/metaseq_benchmark_dependencies.tar.gz -O /mnt/model_storage_dir/pretrained_models/OPT/metaseq_benchmark_dependencies.tar.gz
+      - tar -xvf /mnt/model_storage_dir/pretrained_models/OPT/metaseq_benchmark_dependencies.tar.gz -C /mnt/model_storage_dir/pretrained_models/OPT/
+      # download 125m model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/125m/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/125m/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/125m/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/125m/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/125m/reshard-model_part-1.pt --verbose
+      # download 350m model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/350m/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/350m/reshard.pt -O /mnt/model_storage_dir/pretrained_models/OPT/350m/reshard.pt --verbose
+      # download 1.3b model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/1.3b/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/1.3b/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/1.3b/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/1.3b/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/1.3b/reshard-model_part-1.pt --verbose
+      # download 2.7b model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/2.7b/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/2.7b/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/2.7b/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/2.7b/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/2.7b/reshard-model_part-1.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/2.7b/reshard-model_part-2.pt -O /mnt/model_storage_dir/pretrained_models/OPT/2.7b/reshard-model_part-2.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/2.7b/reshard-model_part-3.pt -O /mnt/model_storage_dir/pretrained_models/OPT/2.7b/reshard-model_part-3.pt --verbose
+      # download 6.7b model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/6.7b/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/6.7b/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/6.7b/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/6.7b/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/6.7b/reshard-model_part-1.pt --verbose
+      # download 13b model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/13b/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/13b/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/13b/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/13b/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/13b/reshard-model_part-1.pt --verbose
+      # download 30b model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/30b/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/30b/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/30b/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20220502/30b/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/30b/reshard-model_part-1.pt --verbose
+      # download 66b model
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/66b/
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-1.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-2.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-2.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-3.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-3.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-4.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-4.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-5.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-5.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-6.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-6.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-7.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-7.pt --verbose
+      - echo "Downloaded all models successfully!!"

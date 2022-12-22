@@ -148,3 +148,8 @@ _results/*
 *.swp
 
 metaseq/fair_internal/scripts/azure/nccl_tests/bin/*
+
+# Amulet User Config
+metaseq/scripts/amulet/scripts/amlt/
+metaseq/scripts/amulet/scripts/.amltconfig
+metaseq/scripts/amulet/scripts/download-models-opt-175b.yaml

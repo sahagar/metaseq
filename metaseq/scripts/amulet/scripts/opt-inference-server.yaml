@@ -1,0 +1,49 @@
+description: OPT_INFERENECE
+
+target:
+  service: amlk8s
+  # run "amlt target list amlk8s" to list the names of available AMLK8s targets
+  name: itphyperdgx2cl1
+  vc: hai3
+
+environment:
+  image: metaseq-opt:latest
+  username: metaseqopt
+  registry: metaseqopt.azurecr.io
+  setup:
+    - sudo pip install -e .
+    - sudo python setup.py install
+    
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: ../../../../
+
+storage:
+  input_data:
+    storage_account_name: sahagar
+    container_name: data
+    mount_dir: /mnt/input_data_dir
+    is_output: false
+
+  output:
+    storage_account_name: sahagar
+    container_name: amulet-output
+    mount_dir: /mnt/output_dir
+
+jobs:
+  - name: OPT_INFERENECE_SERVER_JOB
+    sku: 1xG16
+    command:
+      # code_dir=/tmp/code
+      - set -ex
+      - export INFERENCE_DEFAULT_PORT=46010
+      - export INFERENCE_MODEL_PARALLEL=16
+      - export INFERENCE_TOTAL_WORLD_SIZE=16
+      - export INFERENCE_CHECKPOINT_FOLDER="/mnt/input_data_dir/pretrained_models/OPT/175b-resharded-inference-16x1"
+      - export DEPENDENCY_FOLDER="/mnt/input_data_dir/pretrained_models/OPT/dependencies"
+      - export IS_FSDP_SHARED_CHECKPOINT="False"
+      - export INFERENCE_NUM_SHARDS=1
+      - export DEMO_INDEXPAGE="/tmp/code/metaseq/service/index.html"
+      - echo "Starting inference server on PORT $${INFERENCE_DEFAULT_PORT} with model parallel $${INFERENCE_MODEL_PARALLEL} and total world size $${INFERENCE_TOTAL_WORLD_SIZE} and checkpoint folder $${INFERENCE_CHECKPOINT_FOLDER}"
+      - metaseq-api-local

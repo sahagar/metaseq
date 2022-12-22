@@ -358,7 +358,7 @@ def completions(engine=None):
 @app.route("/")
 def index():
     # TODO(roller): decouple demopage.html
-    fn = pkg_resources.resource_filename("metaseq", "service/index.html")
+    fn = os.environ.get("DEMO_INDEXPAGE", pkg_resources.resource_filename("metaseq", "service/index.html"))
     with open(fn) as f:
         return f.read()
 

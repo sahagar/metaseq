@@ -1,0 +1,40 @@
+description: OPT_Download_Models
+
+target:
+  service: amlk8s
+  # run "amlt target list amlk8s" to list the names of available AMLK8s targets
+  name: itphyperdgx2cl1
+  vc: hai3
+
+environment:
+  image: metaseq-opt:latest
+  username: metaseqopt
+  registry: metaseqopt.azurecr.io
+    
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: ../../../../
+
+storage:
+  model_storage:
+    storage_account_name: sahagar
+    container_name: data
+    mount_dir: /mnt/model_storage_dir
+
+  output:
+    storage_account_name: sahagar
+    container_name: amulet-output
+    mount_dir: /mnt/output_dir
+
+jobs:
+  - name: OPT_Model_Download_Job
+    sku: 1xG0
+    command:
+      - set -ex
+      - sudo apt install -y aria2
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/
+      # download 13b checkpoint 48
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT/13b-checkpoint-48/
+      - aria2c -c -x 2 -j 4 -s 4 -i projects/OPT/assets/OPT-13b-chkp48_urls.txt -d /mnt/model_storage_dir/pretrained_models/OPT/13b-checkpoint-48 --file-allocation none
+      - echo "Downloaded all models successfully!!"

@@ -1,0 +1,85 @@
+description: OPT_Covert_Models
+
+target:
+  service: amlk8s
+  # run "amlt target list amlk8s" to list the names of available AMLK8s targets
+  name: itphyperdgx2cl1
+  vc: hai3
+
+environment:
+  image: metaseq-opt:latest
+  username: metaseqopt
+  registry: metaseqopt.azurecr.io
+  setup:
+    - sudo pip install -e .
+    - sudo python setup.py install
+    
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: ../../../../
+
+storage:
+  model_storage:
+    storage_account_name: sahagar
+    container_name: data
+    mount_dir: /mnt/model_storage_dir
+
+  output:
+    storage_account_name: sahagar
+    container_name: amulet-output
+    mount_dir: /mnt/output_dir
+
+jobs:
+  - name: OPT_CONVERT_RESHARDED_TO_SINGLE_MODEL
+    sku: 1xG16
+    command:
+      # 125m
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/125m
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/125m-singleton/pytorch_model.pt
+      # 350m
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/350m
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/350m-singleton/pytorch_model.pt
+      # 1.3b
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/1.3b
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/1.3b-singleton/pytorch_model.pt
+      # 2.7b
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/2.7b
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/2.7b-singleton/pytorch_model.pt
+      # 6.7b
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/6.7b
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/6.7b-singleton/pytorch_model.pt
+      # 13b
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/13b
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/13b-singleton/pytorch_model.pt
+      # 30b
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/30b
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/30b-singleton/pytorch_model.pt
+      # 66b
+      - python -m metaseq.scripts.convert_to_singleton
+        --location /mnt/model_storage_dir/pretrained_models/OPT/66b
+        --merges-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --vocab-filename /mnt/model_storage_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json
+        --output-path /mnt/model_storage_dir/pretrained_models/OPT/66b-singleton/pytorch_model.pt
+      - echo "All models converted successfully!!"

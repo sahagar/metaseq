@@ -114,7 +114,7 @@ def run_setup(args, config, dry_run):
     save_dir_key = save_dir_key.replace(",", "_")
     num_total_gpus = args.num_nodes * args.num_gpus
     save_dir = os.path.join(
-        args.checkpoints_dir, f"{args.prefix}.{save_dir_key}.ngpu{num_total_gpus}"
+        args.checkpoints_dir, f"{args.prefix}{save_dir_key}"
     )
 
     # create save directory if it doesn't exist
@@ -180,7 +180,7 @@ def gen_train_command(
         num_total_gpus = args.num_nodes * args.num_gpus
         local_save_dir = os.path.join(
             args.local_checkpoints_dir,
-            f"{args.prefix}.{save_dir_key}.ngpu{num_total_gpus}",
+            f"{args.prefix}{save_dir_key}",
         )
         train_cmd.extend(["--save-dir", local_save_dir])
     if getattr(args, "full_azure_upload_path", None) is not None:
@@ -190,7 +190,7 @@ def gen_train_command(
             o = urlparse(args.full_azure_upload_path)
             o = o._replace(
                 path=os.path.join(
-                    o.path, f"{args.prefix}.{save_dir_key}.ngpu{num_total_gpus}"
+                    o.path, f"{args.prefix}{save_dir_key}"
                 )
                 + "/"
             )
@@ -207,7 +207,7 @@ def gen_train_command(
             wandb = None
         if wandb or ("WANDB_API_KEY" in env and "WANDB_BASE_URL" in env):
             if "--wandb-project" not in config:
-                project = f"{args.prefix}.{save_dir_key}"
+                project = f"{args.prefix}{save_dir_key}"
                 train_cmd.extend(["--wandb-project", project])
             if "WANDB_RUN_GROUP" not in env:
                 env["WANDB_RUN_GROUP"] = args.prefix
@@ -222,7 +222,7 @@ def gen_train_command(
         else:
             tensorboard_logdir = os.path.join(
                 args.tensorboard_logdir,
-                f"{args.prefix}.{save_dir_key}.ngpu{str(args.num_nodes * args.num_gpus)}",
+                f"{args.prefix}{save_dir_key}",
             )
         train_cmd.extend(["--tensorboard-logdir", tensorboard_logdir])
     cluster_env = get_env_from_args(args)
@@ -237,7 +237,7 @@ def gen_srun_command_and_str(args, save_dir_key, train_log, train_stderr, train_
     base_srun_cmd = [
         "srun",
         "--job-name",
-        f"{args.prefix}.{save_dir_key}",
+        f"{args.prefix}{save_dir_key}",
         "--output",
         train_log,
         "--error",
@@ -477,7 +477,7 @@ def launch_train(args, grid, grid_product, dry_run, postprocess_hyperparams):
             srun_cmd_str = srun_cmd_str + " &"
             # build command
             if not args.salloc:
-                job_name = f"{args.prefix}.{save_dir_key}"
+                job_name = f"{args.prefix}{save_dir_key}"
                 sbatch_cmd, sbatch_cmd_str = gen_sbatch_command_and_str(
                     args,
                     job_name,

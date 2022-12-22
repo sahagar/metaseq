@@ -53,12 +53,13 @@ logging.basicConfig(
 logger = logging.getLogger("convert_to_singleton")
 
 
-def create_generation_config_with_defaults(model_path, ddp_backend="pytorch_ddp"):
-    files = glob.glob(f"{model_path}/reshard*.pt")
+def create_generation_config_with_defaults(args, ddp_backend="pytorch_ddp"):
+    model_path = args.location
+    files = glob.glob(os.path.join(model_path, "reshard*.pt"))
 
     MP = len(files)
-    BPE_MERGES = model_path + "/gpt2-merges.txt"
-    BPE_VOCAB = model_path + "/gpt2-vocab.json"
+    BPE_MERGES = args.merges_filename
+    BPE_VOCAB = args.vocab_filename
 
     # Skeleton out all the annoying command line args we can infer
     ARGS = [
@@ -100,10 +101,10 @@ def create_generation_config_with_defaults(model_path, ddp_backend="pytorch_ddp"
     return cfg
 
 
-def worker_main(cfg: MetaseqConfig):
+def worker_main(cfg: MetaseqConfig, **kwargs):
     """
     Load up the model on all workers for Model Parallelism, then
-    unflatten, move to cpu, and save to "restored.pt".
+    unflatten, move to cpu, and save to `output_path`.
     """
     task = tasks.setup_task(cfg.task)
 
@@ -156,19 +157,22 @@ def worker_main(cfg: MetaseqConfig):
     output_sd["cfg"]["model"]._name = "transformer_lm"
 
     if distributed_utils.get_global_rank() == 0:
-        with open(cfg.task.data + "/restored.pt", "wb") as f:
+        output_path = kwargs.get("output_path", "restored.pt")
+        with open(output_path, "wb") as f:
             torch.save(output_sd, f)
-
 
 def main():
     # parser to be used like docstring shows
     real_parser = argparse.ArgumentParser()
-    real_parser.add_argument("location")
+    real_parser.add_argument("--location", type=str, help="model location")
+    real_parser.add_argument("--merges-filename", type=str, help="merges filename")
+    real_parser.add_argument("--vocab-filename", type=str, help="vocab filename")
+    real_parser.add_argument("--output-path", type=str, help="output path")
     args = real_parser.parse_args()
 
-    cfg = create_generation_config_with_defaults(args.location)
-    distributed_utils.call_main(cfg, worker_main)
-
+    os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
+    cfg = create_generation_config_with_defaults(args)
+    distributed_utils.call_main(cfg, worker_main, output_path=args.output_path)
 
 if __name__ == "__main__":
     main()

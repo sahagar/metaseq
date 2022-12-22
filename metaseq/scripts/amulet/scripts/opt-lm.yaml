@@ -1,0 +1,54 @@
+description: OPT_Finetune_Test_E2E
+
+target:
+  service: amlk8s
+  # run "amlt target list amlk8s" to list the names of available AMLK8s targets
+  name: itphyperdgx2cl1
+  vc: hai3
+
+environment:
+  image: metaseq-opt:latest
+  username: metaseqopt
+  registry: metaseqopt.azurecr.io
+  setup:
+    - sudo pip install -e .
+    - sudo python setup.py install
+    
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: ../../../../
+
+data:
+  remote_dir: e2e_lm_dataset
+  storage_id: input_data
+
+storage:
+  input_data:
+    storage_account_name: sahagar
+    container_name: data
+    mount_dir: /mnt/input_data_dir
+
+  output:
+    storage_account_name: sahagar
+    container_name: amulet-output
+    mount_dir: /mnt/output_dir
+
+jobs:
+  - name: OPT_LM_Job
+    sku: 1xG16
+    command:
+      # code_dir=/tmp/code
+      - set -ex
+      - opt-baselines --task streaming_language_modeling --num-nodes 1 --num-gpus 16 --local --no-save-params
+        --script metaseq/cli/train.py
+        --model-size 13b --model-parallel 2
+        --checkpoints-dir $$AMLT_OUTPUT_DIR/opt-training --prefix $${AMLT_JOB_NAME}
+        --restore-file /mnt/input_data_dir/pretrained_models/OPT/13b-fsdp-sharded-2x8/checkpoint_last.pt
+        --data $$AMLT_DATA_DIR
+        --vocab-filename /mnt/input_data_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json --merges-filename /mnt/input_data_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
+        --log-interval 25 --warmup-updates 100 --validate-interval-updates 150
+        --batch-size 2
+        --max-epoch 5 
+        --reset-dataloader
+        --aim-repo $$AMLT_LOGS_DIR 2>&1 | tee $$AMLT_OUTPUT_DIR/opt-training/$${AMLT_JOB_NAME}/$${AMLT_JOB_NAME}.log

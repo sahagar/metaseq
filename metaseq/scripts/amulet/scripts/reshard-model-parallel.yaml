@@ -1,0 +1,44 @@
+description: OPT_Covert_Models
+
+target:
+  service: amlk8s
+  # run "amlt target list amlk8s" to list the names of available AMLK8s targets
+  name: itphyperdgx2cl1
+  vc: hai3
+
+environment:
+  image: metaseq-opt:latest
+  username: metaseqopt
+  registry: metaseqopt.azurecr.io
+  setup:
+    - sudo pip install -e .
+    - sudo python setup.py install
+    
+code:
+  # local directory of the code. this will be uploaded to the server.
+  # $CONFIG_DIR is expanded to the directory of this config file
+  local_dir: ../../../../
+
+storage:
+  model_storage:
+    storage_account_name: sahagar
+    container_name: data
+    mount_dir: /mnt/model_storage_dir
+
+  output:
+    storage_account_name: sahagar
+    container_name: amulet-output
+    mount_dir: /mnt/output_dir
+
+jobs:
+  - name: OPT_RESHARD_MODEL_PARALLEL
+    sku: 1xG0
+    command:
+      # 175b
+      - python -m metaseq.scripts.reshard_model_parallel
+          --pth_prefix /mnt/model_storage_dir/pretrained_models/OPT/175b-resharded-inference-8x1/reshard
+          --new_model_parts 16
+          --output_path /mnt/model_storage_dir/pretrained_models/OPT/175b-resharded-inference-16x1/
+          --save_prefix reshard
+          --new_arch_name transformer_lm_megatron
+      - echo "All models converted successfully!!"

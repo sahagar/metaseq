@@ -1,0 +1,12 @@
+.amltignore
+.circleci/
+.github/
+.git/
+.gitignore
+build/
+docker/
+metaseq.egg-info/
+dist/
+__pycache__/
+metaseq/scripts/amulet/
+projects/OPT/chronicles/
