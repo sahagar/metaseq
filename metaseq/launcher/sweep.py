@@ -11,15 +11,15 @@ import subprocess
 import itertools
 import random
 import hashlib
+import logging
+import time
 from pathlib import Path
 from collections import OrderedDict
 from typing import Optional, List, Callable, MutableMapping
 from urllib.parse import urlparse
-import traceback
+
 import metaseq
 from metaseq.utils import get_random_port
-import logging
-import time
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -28,7 +28,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logging.Formatter.converter = time.gmtime  # Enforce UTC timestamps
-logger = logging.getLogger("metaseq.sweep")
+logger = logging.getLogger(__name__)
 
 class hyperparam(object):
     """Base class for defining hyperparameters."""
@@ -312,7 +312,8 @@ def set_env(args, env):
 def gen_train_command(args, env, config, save_dir):
     # generate train command
     code_folder = str(Path(metaseq.__file__).parents[1])
-    train_cmd = [args.python, os.path.join(code_folder, args.script)]
+    # train_cmd = [args.python, os.path.join(code_folder, args.script)]
+    train_cmd = ["torchrun", f"--nnodes={args.num_nodes}", f"--nproc_per_node={args.num_gpus}", os.path.join(code_folder, args.script)]
     train_cmd.extend(["--distributed-world-size", str(args.num_nodes * args.num_gpus)])
     if args.num_nodes > 1 or (args.num_gpus > 1):
         train_cmd.extend(["--distributed-port", str(get_random_port())])
@@ -425,12 +426,18 @@ def main(
         )
 
         train_stdout = os.path.join(save_dir, "train.log")
-        logger.info(f"running command: {train_cmd} \n\nTrain Log: {train_stdout} \n")
-        with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as train_proc, \
-                open(train_stdout, "w") as train_stdout_h:
-            train_proc.wait()
-            stdout = train_proc.output.read().decode("utf-8")
-            print(stdout, file=train_stdout_h)
-            if train_proc.returncode != 0:
-                logger.error(f"train command failed. Traceback: \n\n {traceback.format_exc()}")
-                sys.exit(1)
+        logger.info(f"running command: {train_cmd}")
+        logger.info(f"Train Log: {train_stdout}")
+
+        train_proc = subprocess.Popen(train_cmd, env=env)
+        train_proc.wait()
+
+        # with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as train_proc, \
+        #         open(train_stdout, "w") as train_stdout_h:
+        #     train_proc.wait()
+        #     stdout = train_proc.stdout.read().decode("utf-8")
+        #     print(stdout, file=train_stdout_h)
+        #     if train_proc.returncode != 0:
+        #         logger.error("train command failed. Traceback:")
+        #         logger.error(stdout[stdout.rfind("Traceback"):])
+        #         sys.exit(1)

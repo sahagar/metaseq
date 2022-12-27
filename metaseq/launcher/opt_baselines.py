@@ -31,7 +31,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logging.Formatter.converter = time.gmtime  # Enforce UTC timestamps
-logger = logging.getLogger("metaseq.opt_baselines")
+logger = logging.getLogger(__name__)
 
 def add_extra_options_func(parser):
     # NOTE we shouldn't add new options here... track changes via git instead
