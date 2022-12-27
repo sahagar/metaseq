@@ -426,7 +426,7 @@ def main(
 
         train_stdout = os.path.join(save_dir, "train.log")
         logger.info(f"running command: {train_cmd} \n\nTrain Log: {train_stdout} \n")
-        with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, env=env) as train_proc, \
+        with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as train_proc, \
                 open(train_stdout, "w") as train_stdout_h:
             train_proc.wait()
             stdout = train_proc.output.read().decode("utf-8")
