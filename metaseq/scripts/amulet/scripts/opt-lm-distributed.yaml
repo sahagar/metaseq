@@ -35,21 +35,21 @@ storage:
     mount_dir: /mnt/output_dir
 
 jobs:
-  - name: OPT_Finetune_Job_175B
+  - name: OPT_LM_Job_Distributed
     sku: 4xG16
     command:
       # code_dir=/tmp/code
+      # --restore-file /mnt/input_data_dir/pretrained_models/OPT/175b-resharded-8x8/checkpoint_last.pt
       - set -ex
-      - opt-baselines --task streaming_language_modeling --num-nodes 4 --num-gpus 16 --local --no-save-params
+      - opt-baselines --task streaming_language_modeling --num-nodes 4 --num-gpus 16
         --script metaseq/cli/train.py
-        --model-size 175b --model-parallel 8
-        --checkpoints-dir $$AMLT_OUTPUT_DIR/opt-training --prefix $${AMLT_JOB_NAME}
-        --restore-file /mnt/input_data_dir/pretrained_models/OPT/175b-resharded-8x8/checkpoint_last.pt
+        --model-size 66b --model-parallel 32
+        --checkpoints-dir $$AMLT_OUTPUT_DIR --prefix $${AMLT_JOB_NAME}
         --data $$AMLT_DATA_DIR
         --vocab-filename /mnt/input_data_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json --merges-filename /mnt/input_data_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
         --log-interval 25 --warmup-updates 100 --validate-interval-updates 150
         --batch-size 2
         --max-epoch 5
         --reset-dataloader
-        --aim-repo $$AMLT_LOGS_DIR 2>&1 | tee $$AMLT_OUTPUT_DIR/opt-training/$${AMLT_JOB_NAME}/$${AMLT_JOB_NAME}.log
+        --aim-repo $$AMLT_LOGS_DIR
     process_count_per_node: 1
