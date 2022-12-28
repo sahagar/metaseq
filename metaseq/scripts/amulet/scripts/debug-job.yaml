@@ -48,8 +48,9 @@ storage:
 
 jobs:
   - name: OPT_DEBUG_JOB
-    sku: 1xG16
+    sku: 4xG16
     command:
       # code_dir=/tmp/code
       - set -ex
       - sleep infinity
+    process_count_per_node: 1

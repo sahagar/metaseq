@@ -281,26 +281,26 @@ def _modify_arg_defaults_based_on_env(args):
             "ffffff000000000000,ffffff000000000000"
         )
 
-def set_env(args, env):
-    if "NCCL_SOCKET_IFNAME" not in env:
-        env["NCCL_SOCKET_IFNAME"] = "eth0"
+def set_env(args):
+    if "NCCL_SOCKET_IFNAME" not in os.environ:
+        os.environ["NCCL_SOCKET_IFNAME"] = "eth0"
 
     # NCCL_ASYNC_ERROR_HANDLING allows failfast upon NCCL error.
     # It only takes effect in torch 1.7+
-    if "NCCL_ASYNC_ERROR_HANDLING" not in env:
-        env["NCCL_ASYNC_ERROR_HANDLING"] = "1"
+    if "NCCL_ASYNC_ERROR_HANDLING" not in os.environ:
+        os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
     # https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html#nccl-ib-timeout
-    if "NCCL_IB_TIMEOUT" not in env:
-        env["NCCL_IB_TIMEOUT"] = "22"
+    if "NCCL_IB_TIMEOUT" not in os.environ:
+        os.environ["NCCL_IB_TIMEOUT"] = "22"
 
     # Avoid failure "Call to ibv_reg_mr failed" for NCCL2.4.x
-    if "NCCL_TREE_THRESHOLD" not in env:
-        env["NCCL_TREE_THRESHOLD"] = "0"
+    if "NCCL_TREE_THRESHOLD" not in os.environ:
+        os.environ["NCCL_TREE_THRESHOLD"] = "0"
 
     # Print NCCL info by default
-    if "NCCL_DEBUG" not in env:
-        env["NCCL_DEBUG"] = "INFO"
+    if "NCCL_DEBUG" not in os.environ:
+        os.environ["NCCL_DEBUG"] = "INFO"
 
     # NCCL speed up default
     if "NCCL_NSOCKS_PERTHREAD" not in os.environ:
@@ -309,7 +309,7 @@ def set_env(args, env):
     if "NCCL_SOCKET_NTHREADS" not in os.environ:
         os.environ["NCCL_SOCKET_NTHREADS"] = "2"
 
-def gen_train_command(args, env, config, save_dir):
+def gen_train_command(args, config, save_dir):
     # generate train command
     code_folder = str(Path(metaseq.__file__).parents[1])
     # train_cmd = [args.python, os.path.join(code_folder, args.script)]
@@ -330,16 +330,16 @@ def gen_train_command(args, env, config, save_dir):
             import wandb
         except ImportError:
             wandb = None
-        if wandb or ("WANDB_API_KEY" in env and "WANDB_BASE_URL" in env):
+        if wandb or ("WANDB_API_KEY" in os.environ and "WANDB_BASE_URL" in os.environ):
             if "--wandb-project" not in config:
                 project = args.prefix
                 train_cmd.extend(["--wandb-project", project])
-            if "WANDB_RUN_GROUP" not in env:
-                env["WANDB_RUN_GROUP"] = args.prefix
-            if "WANDB_RUN_ID" not in env:
-                env["WANDB_RUN_ID"] = hashlib.md5(save_dir.encode("utf-8")).hexdigest()
-            if "WANDB_RESUME" not in env:
-                env["WANDB_RESUME"] = "allow"
+            if "WANDB_RUN_GROUP" not in os.environ:
+                os.environ["WANDB_RUN_GROUP"] = args.prefix
+            if "WANDB_RUN_ID" not in os.environ:
+                os.environ["WANDB_RUN_ID"] = hashlib.md5(save_dir.encode("utf-8")).hexdigest()
+            if "WANDB_RESUME" not in os.environ:
+                os.environ["WANDB_RESUME"] = "allow"
 
     if not args.no_tensorboard:
         if args.tensorboard_logdir is None:
@@ -390,54 +390,66 @@ def main(
     get_grid = get_grid[args.grid] if args.grid is not None else get_grid
     
     grid = get_grid(args)
-    grid_product = list(itertools.product(*[hp.values for hp in grid]))
+    # grid_product = list(itertools.product(*[hp.values for hp in grid]))
 
     # randomly shuffle configurations
     random.seed(args.seed)
-    random.shuffle(grid_product)
-
+    
     # set environment
-    env = os.environ.copy()
-    set_env(args, env)
+    set_env(args)
 
     save_dir = os.path.join(args.checkpoints_dir, args.prefix)
-    env["METASEQ_SAVE_DIR"] = save_dir
+    os.environ["METASEQ_SAVE_DIR"] = save_dir
 
+    # if args.distributed_rank == 0:
     # create save directory if it doesn't exist
     logger.info(f"creating save directory: {save_dir}")
     os.makedirs(save_dir, exist_ok=True)
     
     # start training
-    for i, hp_values in enumerate(grid_product):
-        config = OrderedDict()
-        for hp, value in zip(grid, hp_values):
-            config[hp.name] = hp
-            config[hp.name].current_value = value
+    config = OrderedDict()
+    for hp, value in zip(grid, hp.values):
+        config[hp.name] = hp
+        config[hp.name].current_value = value
 
-        # postprocess hyperparams
-        postprocess_hyperparams(args, config)
+    # postprocess hyperparams
+    postprocess_hyperparams(args, config)
 
-        # generate train command
-        train_cmd = gen_train_command(
-            args,
-            env,
-            config,
-            save_dir
-        )
+    # generate train command
+    train_cmd = gen_train_command(
+        args,
+        config,
+        save_dir
+    )
 
-        train_stdout = os.path.join(save_dir, "train.log")
-        logger.info(f"running command: {train_cmd}")
-        logger.info(f"Train Log: {train_stdout}")
+    train_stdout = os.path.join(save_dir, "train.log")
+    logger.info(f"running command: {train_cmd}")
+    logger.info(f"Train Log: {train_stdout}")
 
-        train_proc = subprocess.Popen(train_cmd, env=env)
-        train_proc.wait()
+    exception = None
+    try:
+        subprocess.run(train_cmd, check=True)
+    except Exception as e:
+        exception = e
 
-        # with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as train_proc, \
-        #         open(train_stdout, "w") as train_stdout_h:
-        #     train_proc.wait()
-        #     stdout = train_proc.stdout.read().decode("utf-8")
-        #     print(stdout, file=train_stdout_h)
-        #     if train_proc.returncode != 0:
-        #         logger.error("train command failed. Traceback:")
-        #         logger.error(stdout[stdout.rfind("Traceback"):])
-        #         sys.exit(1)
+    # Re-throw exception if any
+    if exception:
+        # Exceptions printed here may not be caught.
+        # ITP searches for error pattern in last 2KB of the log. Errors from mpi
+        # jobs are not caught, causing 3 retries regardless of the error type.
+        # ITP is increasing log size limit to 1MB.
+        logger.error(exception)
+        sys.exit(1)
+
+    # train_proc = subprocess.Popen(train_cmd, env=env)
+    # train_proc.wait()
+
+    # with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as train_proc, \
+    #         open(train_stdout, "w") as train_stdout_h:
+    #     train_proc.wait()
+    #     stdout = train_proc.stdout.read().decode("utf-8")
+    #     print(stdout, file=train_stdout_h)
+    #     if train_proc.returncode != 0:
+    #         logger.error("train command failed. Traceback:")
+    #         logger.error(stdout[stdout.rfind("Traceback"):])
+    #         sys.exit(1)

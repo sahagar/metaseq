@@ -83,8 +83,8 @@ def _infer_torch_distributed_launch_init(cfg: DistributedTrainingConfig):
     os.environ["WORLD_SIZE"] = str(cfg.distributed_world_size)
     os.environ["RANK"] = str(cfg.distributed_rank)
     os.environ["LOCAL_RANK"] = str(cfg.device_id)
-    os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", get_master_address())
-    os.environ["MASTER_PORT"] = os.environ.get("MASTER_PORT", get_master_port())
+    os.environ["MASTER_ADDR"] = os.environ.get("MASTER_IP", get_master_address())
+    os.environ["MASTER_PORT"] = get_master_port()
 
     cfg.distributed_init_method = "env://"
     # processes are created by torch.distributed.launch
