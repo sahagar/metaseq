@@ -269,18 +269,6 @@ def _modify_arg_defaults_based_on_env(args):
     if args.checkpoints_dir is None:
         args.checkpoints_dir = default_checkpoint_dir
 
-    # assign default # cpus per task
-    if args.cpus_per_task is None:
-        args.cpus_per_task = 12
-
-    # assign default cpu bind
-    if args.cpu_bind is None:
-        args.cpu_bind = (
-            "mask_cpu:ffffff000000,ffffff000000,ffffff,ffffff,"
-            "ffffff000000000000000000,ffffff000000000000000000,"
-            "ffffff000000000000,ffffff000000000000"
-        )
-
 def set_env(args, env):
     # NCCL_ASYNC_ERROR_HANDLING allows failfast upon NCCL error.
     # It only takes effect in torch 1.7+
