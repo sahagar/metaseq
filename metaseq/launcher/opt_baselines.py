@@ -229,6 +229,10 @@ def get_grid(args):
             hyperparam("--tensor-parallel-init-model-on-gpu"), 
             hyperparam("--criterion", "vocab_parallel_cross_entropy"),
         ]
+    else:
+        grid += [
+            hyperparam("--criterion", "cross_entropy"),
+        ]
     
     if args.restore_file:
         grid += [hyperparam("--restore-file", args.restore_file)]
