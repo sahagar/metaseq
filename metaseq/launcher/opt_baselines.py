@@ -179,7 +179,7 @@ def get_grid(args):
         hyperparam("--model-parallel-size", size.model_parallel),
         hyperparam("--distribute-checkpointed-activations"),
         # Flags to match exact same initialization of Megatron code for exp 12.00
-        hyperparam("--full-megatron-init"),
+        
         hyperparam("--megatron-init-sigma", 0.006),
         hyperparam("--activation-fn", "relu"),
         hyperparam("--arch", "transformer_lm_megatron"),
@@ -228,6 +228,7 @@ def get_grid(args):
         grid += [
             hyperparam("--tensor-parallel-init-model-on-gpu"), 
             hyperparam("--criterion", "vocab_parallel_cross_entropy"),
+            hyperparam("--full-megatron-init"),
         ]
     else:
         grid += [
