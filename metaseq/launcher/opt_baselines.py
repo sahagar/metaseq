@@ -99,8 +99,8 @@ def get_grid(args):
         est_bz = (size.batch_size // total_gpus) // SEQ_LEN
         size.lr = size.lr * round((args.batch_size/est_bz), 6)
         
-    if SEQ_LEN != EST_SEQ_LEN:
-        size.lr = size.lr * round((SEQ_LEN/EST_SEQ_LEN), 6) 
+        if SEQ_LEN != EST_SEQ_LEN:
+            size.lr = size.lr * round((SEQ_LEN/EST_SEQ_LEN), 6) 
 
     if args.model_parallel: size.model_parallel = args.model_parallel
     if args.batch_size: size.batch_size = args.batch_size
