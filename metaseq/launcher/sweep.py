@@ -282,9 +282,6 @@ def _modify_arg_defaults_based_on_env(args):
         )
 
 def set_env(args, env):
-    if "NCCL_SOCKET_IFNAME" not in env:
-        env["NCCL_SOCKET_IFNAME"] = "eth0"
-
     # NCCL_ASYNC_ERROR_HANDLING allows failfast upon NCCL error.
     # It only takes effect in torch 1.7+
     if "NCCL_ASYNC_ERROR_HANDLING" not in env:
