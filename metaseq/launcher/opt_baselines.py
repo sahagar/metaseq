@@ -58,7 +58,7 @@ def add_extra_options_func(parser):
     )
     parser.add_argument("--max-updates", "--mu", type=int, default=None)
     parser.add_argument("--warmup-updates", type=int, default=None)
-    parser.add_argument("--max-epoch", "--me", type=int, default=None)
+    parser.add_argument("--max-epochs", "--me", type=int, default=None)
     parser.add_argument(
         "--disable-validation", action="store_true", help="skip doing validation"
     )
@@ -241,8 +241,8 @@ def get_grid(args):
     if args.disable_validation:
         grid += [hyperparam("--disable-validation")]
 
-    if args.max_epoch is not None:
-        grid += [hyperparam("--max-epochs", total_epochs)]
+    if args.max_epochs is not None:
+        grid += [hyperparam("--max-epoch", total_epochs)]
     if args.aim_repo:
         grid += [hyperparam("--aim-repo", args.aim_repo)]
         
