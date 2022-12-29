@@ -72,6 +72,7 @@ def add_extra_options_func(parser):
     parser.add_argument("--vocab-filename", type=str, default="gpt2-vocab.json")
     parser.add_argument("--merges-filename", type=str, default="gpt2-merges.txt")
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--seq_len", type=int, default=None)
     parser.add_argument("--aim-repo", type=str, default=None)
 
 def get_grid(args):
@@ -83,11 +84,14 @@ def get_grid(args):
         valid_subsets = args.valid_subsets # VALID_SUBSETS
 
     SEQ_LEN = 2048
+    EST_SEQ_LEN = SEQ_LEN
 
     size = MODEL_SIZES[args.model_size]
     # updates = 300B tokens / 2048 seq_len / 1024 batchsize
     
     total_gpus = args.num_gpus * args.num_nodes
+
+    if args.seq_len: SEQ_LEN = args.seq_len
 
     if args.lr:
         size.lr = args.lr
@@ -95,6 +99,9 @@ def get_grid(args):
         est_bz = (size.batch_size // total_gpus) // SEQ_LEN
         size.lr = size.lr * round((args.batch_size/est_bz), 6)
         
+    if SEQ_LEN != EST_SEQ_LEN:
+        size.lr = size.lr * round((SEQ_LEN/EST_SEQ_LEN), 6) 
+
     if args.model_parallel: size.model_parallel = args.model_parallel
     if args.batch_size: size.batch_size = args.batch_size
 
@@ -117,7 +124,7 @@ def get_grid(args):
     total_gpus = (args.num_gpus * args.num_nodes) // size.model_parallel
     ddp_bsz = size.batch_size # (size.batch_size // total_gpus) // SEQ_LEN
     total_updates = args.max_updates
-    total_epochs = args.max_epoch
+    total_epochs = args.max_epochs
     if total_updates is None:
         total_updates = int(TOTAL_TRAIN_TOKENS)
     # warmup_updates = int(TOTAL_WARMUP_TOKENS) // size.batch_size
@@ -235,7 +242,7 @@ def get_grid(args):
         grid += [hyperparam("--disable-validation")]
 
     if args.max_epoch is not None:
-        grid += [hyperparam("--max-epoch", total_epochs)]
+        grid += [hyperparam("--max-epochs", total_epochs)]
     if args.aim_repo:
         grid += [hyperparam("--aim-repo", args.aim_repo)]
         

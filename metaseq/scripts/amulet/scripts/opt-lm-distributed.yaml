@@ -49,7 +49,7 @@ jobs:
         --vocab-filename /mnt/input_data_dir/pretrained_models/OPT/dependencies/gpt2-vocab.json --merges-filename /mnt/input_data_dir/pretrained_models/OPT/dependencies/gpt2-merges.txt
         --log-interval 25 --warmup-updates 100 --validate-interval-updates 150
         --batch-size 4
-        --max-epoch 5
+        --max-epochs 5
         --reset-dataloader
         --aim-repo $$AMLT_LOGS_DIR
     process_count_per_node: 1
