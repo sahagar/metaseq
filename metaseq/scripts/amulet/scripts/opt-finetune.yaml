@@ -52,3 +52,4 @@ jobs:
         --max-epoch 5 
         --reset-dataloader
         --aim-repo $$AMLT_LOGS_DIR
+    process_count_per_node: 1

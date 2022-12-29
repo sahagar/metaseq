@@ -60,11 +60,6 @@ def main(cfg: DictConfig) -> None:
         "ignore",
         message="torch.distributed._reduce_scatter_base is a private function and will be deprecated",
     )
-    # replace with actual job id
-    slurm_jobid = os.environ.get("SLURM_JOBID", None)
-    if "%jobid" in cfg.checkpoint.save_dir and slurm_jobid is not None:
-        cfg.checkpoint.save_dir = cfg.checkpoint.save_dir.replace("%jobid", slurm_jobid)
-
     checkpoint_utils.verify_checkpoint_directory(cfg.checkpoint.save_dir)
 
     if distributed_utils.is_master(cfg.distributed_training):
@@ -718,16 +713,15 @@ def set_local_per_worker_env_variables():
     if savedir is not None:
         hostname = socket.gethostname()
 
-        restart = int(os.environ.get("SLURM_RESTART_COUNT", "0"))
-        nccl_dir = os.path.join(savedir, "nccl", f"restart_{restart:03d}")
+        nccl_dir = os.path.join(savedir, "nccl")
         os.makedirs(nccl_dir, exist_ok=True)
-        rank = int(os.environ.get("SLURM_PROCID", "0"))
+        rank = int(os.environ.get("RANK", "0"))
         os.environ["NCCL_DEBUG_FILE"] = os.path.join(
             nccl_dir, f"rank_{rank:04d}_{hostname}"
         )
 
         # save a copy of all our environmental variables
-        env_dir = os.path.join(savedir, "envs", f"restart_{restart:03d}")
+        env_dir = os.path.join(savedir, "envs")
         os.makedirs(env_dir, exist_ok=True)
         with open(os.path.join(env_dir, f"rank_{rank:04d}_{hostname}"), "w") as f:
             for key in sorted(os.environ.keys()):

@@ -53,4 +53,4 @@ jobs:
       # code_dir=/tmp/code
       - set -ex
       - sleep infinity
-    process_count_per_node: 1
+    process_count_per_node: 0

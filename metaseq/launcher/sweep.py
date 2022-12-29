@@ -281,42 +281,43 @@ def _modify_arg_defaults_based_on_env(args):
             "ffffff000000000000,ffffff000000000000"
         )
 
-def set_env(args):
-    if "NCCL_SOCKET_IFNAME" not in os.environ:
-        os.environ["NCCL_SOCKET_IFNAME"] = "eth0"
+def set_env(args, env):
+    if "NCCL_SOCKET_IFNAME" not in env:
+        env["NCCL_SOCKET_IFNAME"] = "eth0"
 
     # NCCL_ASYNC_ERROR_HANDLING allows failfast upon NCCL error.
     # It only takes effect in torch 1.7+
-    if "NCCL_ASYNC_ERROR_HANDLING" not in os.environ:
-        os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
+    if "NCCL_ASYNC_ERROR_HANDLING" not in env:
+        env["NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
     # https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html#nccl-ib-timeout
-    if "NCCL_IB_TIMEOUT" not in os.environ:
-        os.environ["NCCL_IB_TIMEOUT"] = "22"
+    if "NCCL_IB_TIMEOUT" not in env:
+        env["NCCL_IB_TIMEOUT"] = "22"
 
     # Avoid failure "Call to ibv_reg_mr failed" for NCCL2.4.x
-    if "NCCL_TREE_THRESHOLD" not in os.environ:
-        os.environ["NCCL_TREE_THRESHOLD"] = "0"
+    if "NCCL_TREE_THRESHOLD" not in env:
+        env["NCCL_TREE_THRESHOLD"] = "0"
 
     # Print NCCL info by default
-    if "NCCL_DEBUG" not in os.environ:
-        os.environ["NCCL_DEBUG"] = "INFO"
+    if "NCCL_DEBUG" not in env:
+        env["NCCL_DEBUG"] = "INFO"
 
     # NCCL speed up default
-    if "NCCL_NSOCKS_PERTHREAD" not in os.environ:
-        os.environ["NCCL_NSOCKS_PERTHREAD"] = "4"
+    if "NCCL_NSOCKS_PERTHREAD" not in env:
+        env["NCCL_NSOCKS_PERTHREAD"] = "4"
 
-    if "NCCL_SOCKET_NTHREADS" not in os.environ:
-        os.environ["NCCL_SOCKET_NTHREADS"] = "2"
+    if "NCCL_SOCKET_NTHREADS" not in env:
+        env["NCCL_SOCKET_NTHREADS"] = "2"
 
-def gen_train_command(args, config, save_dir):
+    env["CUDA_VISIBLE_DEVICES"] = ",".join([str(i) for i in range(args.num_gpus)])
+    env["WORLD_SIZE"] = str(args.num_nodes * args.num_gpus)
+
+def gen_train_command(args, config, save_dir, env):
     # generate train command
     code_folder = str(Path(metaseq.__file__).parents[1])
     # train_cmd = [args.python, os.path.join(code_folder, args.script)]
-    train_cmd = ["torchrun", f"--nnodes={args.num_nodes}", f"--nproc_per_node={args.num_gpus}", os.path.join(code_folder, args.script)]
+    train_cmd = ["torchrun", f"--nnodes={args.num_nodes}", f"--nproc_per_node={args.num_gpus}", f"--node_rank={os.environ.get('RANK', 0)}", f"--master_addr={os.environ.get('MASTER_ADDR', 'localhost')}", "--master_port=29510", os.path.join(code_folder, args.script)]
     train_cmd.extend(["--distributed-world-size", str(args.num_nodes * args.num_gpus)])
-    if args.num_nodes > 1 or (args.num_gpus > 1):
-        train_cmd.extend(["--distributed-port", str(get_random_port())])
 
     assert args.data is not None, "data path must be specified"
     assert save_dir is not None, "save_dir must be specified"
@@ -330,16 +331,16 @@ def gen_train_command(args, config, save_dir):
             import wandb
         except ImportError:
             wandb = None
-        if wandb or ("WANDB_API_KEY" in os.environ and "WANDB_BASE_URL" in os.environ):
+        if wandb or ("WANDB_API_KEY" in env and "WANDB_BASE_URL" in env):
             if "--wandb-project" not in config:
                 project = args.prefix
                 train_cmd.extend(["--wandb-project", project])
-            if "WANDB_RUN_GROUP" not in os.environ:
-                os.environ["WANDB_RUN_GROUP"] = args.prefix
-            if "WANDB_RUN_ID" not in os.environ:
-                os.environ["WANDB_RUN_ID"] = hashlib.md5(save_dir.encode("utf-8")).hexdigest()
-            if "WANDB_RESUME" not in os.environ:
-                os.environ["WANDB_RESUME"] = "allow"
+            if "WANDB_RUN_GROUP" not in env:
+                env["WANDB_RUN_GROUP"] = args.prefix
+            if "WANDB_RUN_ID" not in env:
+                env["WANDB_RUN_ID"] = hashlib.md5(save_dir.encode("utf-8")).hexdigest()
+            if "WANDB_RESUME" not in env:
+                env["WANDB_RESUME"] = "allow"
 
     if not args.no_tensorboard:
         if args.tensorboard_logdir is None:
@@ -396,10 +397,11 @@ def main(
     random.seed(args.seed)
     
     # set environment
-    set_env(args)
+    env = os.environ.copy()
+    set_env(args, env)
 
     save_dir = os.path.join(args.checkpoints_dir, args.prefix)
-    os.environ["METASEQ_SAVE_DIR"] = save_dir
+    env["METASEQ_SAVE_DIR"] = save_dir
 
     # if args.distributed_rank == 0:
     # create save directory if it doesn't exist
@@ -408,9 +410,9 @@ def main(
     
     # start training
     config = OrderedDict()
-    for hp, value in zip(grid, hp.values):
+    for hp in grid:
         config[hp.name] = hp
-        config[hp.name].current_value = value
+        config[hp.name].current_value = hp.values[0]
 
     # postprocess hyperparams
     postprocess_hyperparams(args, config)
@@ -419,7 +421,8 @@ def main(
     train_cmd = gen_train_command(
         args,
         config,
-        save_dir
+        save_dir,
+        env
     )
 
     train_stdout = os.path.join(save_dir, "train.log")
@@ -428,7 +431,7 @@ def main(
 
     exception = None
     try:
-        subprocess.run(train_cmd, check=True)
+        subprocess.run(train_cmd, check=True, env=env)
     except Exception as e:
         exception = e
 

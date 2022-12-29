@@ -76,17 +76,11 @@ def get_master_port():
     return str(29510)
 
 def _infer_torch_distributed_launch_init(cfg: DistributedTrainingConfig):
-    if not cfg.distributed_world_size: cfg.distributed_world_size = int(os.environ.get("WORLD_SIZE", 1))
-    if not cfg.distributed_rank: cfg.distributed_rank = int(os.environ.get("RANK", 0))
-    if not cfg.device_id: cfg.device_id = int(os.environ.get("LOCAL_RANK", 0))
-    
-    os.environ["WORLD_SIZE"] = str(cfg.distributed_world_size)
-    os.environ["RANK"] = str(cfg.distributed_rank)
-    os.environ["LOCAL_RANK"] = str(cfg.device_id)
-    os.environ["MASTER_ADDR"] = os.environ.get("MASTER_IP", get_master_address())
-    os.environ["MASTER_PORT"] = get_master_port()
+    cfg.device_id = int(os.environ.get("LOCAL_RANK", "0"))
+    cfg.distributed_rank = int(os.environ.get("RANK", "0"))
+    cfg.distributed_world_size = int(os.environ.get("WORLD_SIZE", "1"))
 
-    cfg.distributed_init_method = "env://"
+    cfg.distributed_init_method = os.environ.get("INIT_METHOD", "env://")
     # processes are created by torch.distributed.launch
     cfg.distributed_no_spawn = True
     logger.info(f"Distributed Config Complete")

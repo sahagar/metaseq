@@ -127,7 +127,4 @@ RUN cd ${STAGE_DIR} && \
     git checkout fixing_memory_issues_with_keeping_overlap_may24 && \
     pip install -e .
 
-RUN pip install \
-            aim \
-            deepspeed \
-            transformers
+RUN pip install aim==3.15.2
