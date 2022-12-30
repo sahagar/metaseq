@@ -62,7 +62,9 @@ def add_extra_options_func(parser):
     parser.add_argument(
         "--disable-validation", action="store_true", help="skip doing validation"
     )
-    
+
+    parser.add_argument("--keep-last-epochs", type=int, default=3, help="keep last N epoch  checkpoints")
+    parser.add_argument("--keep-last-updates", type=int, default=-1, help="keep last N update checkpoints")
     parser.add_argument("--save-interval-updates", type=int, default=2000)
     parser.add_argument("--validate-interval-updates", type=int, default=2000)
     parser.add_argument("--batch-size", type=int, default=None)
@@ -98,7 +100,7 @@ def get_grid(args):
     elif args.batch_size:
         est_bz = (size.batch_size // total_gpus) // SEQ_LEN
         size.lr = size.lr * round((args.batch_size/est_bz), 6)
-        
+
         if SEQ_LEN != EST_SEQ_LEN: size.lr = size.lr * round((SEQ_LEN/EST_SEQ_LEN), 6) 
 
     if args.model_parallel: size.model_parallel = args.model_parallel
@@ -230,6 +232,8 @@ def get_grid(args):
         hyperparam("--log-format", "json"),
         hyperparam("--log-interval", log_interval),
         hyperparam("--required-batch-size-multiple", 1),
+        hyperparam("--keep-last-epochs", args.keep_last_epochs),
+        hyperparam("--keep-last-updates", args.keep_last_updates),
     ]
     
     if args.restore_file:
