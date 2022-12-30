@@ -74,7 +74,7 @@ def add_extra_options_func(parser):
     parser.add_argument("--vocab-filename", type=str, default="gpt2-vocab.json")
     parser.add_argument("--merges-filename", type=str, default="gpt2-merges.txt")
     parser.add_argument("--lr", type=float, default=None)
-    parser.add_argument("--seq_len", type=int, default=None)
+    parser.add_argument("--seq-len", type=int, default=None)
     parser.add_argument("--aim-repo", type=str, default=None)
 
 def get_grid(args):
