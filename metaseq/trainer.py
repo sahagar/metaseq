@@ -1181,7 +1181,7 @@ class Trainer(object):
             not torch.is_tensor(grad_norm) or torch.isfinite(grad_norm)
         ):
             metrics.log_speed("ups", 1.0, priority=100, round=2)
-            # metrics.log_scalar("gnorm", grad_norm, priority=400, round=3)
+            metrics.log_scalar("gnorm", grad_norm, priority=400, round=3)
             metrics.log_scalar("ewm_loss", self._ewm_loss, priority=700, round=2)
             metrics.log_scalar("ewm_loss_ratio", ewm_loss_ratio, priority=710, round=4)
             metrics.log_scalar(
