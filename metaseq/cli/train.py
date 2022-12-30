@@ -274,7 +274,7 @@ def train(
                 stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
                 stats_slim = {}
                 for k in list(stats.keys()):
-                    if not list(map(lambda x: k.startswith(x), ["gnorm_", "gmax_", "gzero_", "pnorm_", "pmax_", "pzero_"])).any():
+                    if not any(map(lambda x: k.startswith(x), ["gnorm_", "gmax_", "gzero_", "pnorm_", "pmax_", "pzero_"])):
                         stats_slim[k] = stats[k]
                 
                 progress.log(stats_slim, tag="train_inner", step=num_updates)
