@@ -272,7 +272,12 @@ def train(
             num_updates = trainer.get_num_updates()
             if num_updates % cfg.common.log_interval == 0:
                 stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
-                progress.log(stats, tag="train_inner", step=num_updates)
+                stats_slim = {}
+                for k in list(stats.keys()):
+                    if not map(lambda x: k.startswith(x), ["gnorm_", "gmax_", "gzero_", "pnorm_", "pmax_", "pzero_"]).any():
+                        stats_slim[k] = stats[k]
+                
+                progress.log(stats_slim, tag="train_inner", step=num_updates)
 
                 # reset mid-epoch stats after each log interval
                 # the end-of-epoch stats will still be preserved
