@@ -75,4 +75,14 @@ jobs:
       - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-5.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-5.pt --verbose
       - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-6.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-6.pt --verbose
       - wget https://dl.fbaipublicfiles.com/opt/v1_20221026/66b/reshard-model_part-7.pt -O /mnt/model_storage_dir/pretrained_models/OPT/66b/reshard-model_part-7.pt --verbose
+      # download 30B IML Models (https://github.com/facebookresearch/metaseq/blob/main/projects/OPT-IML/optiml_paper_v1.pdf)
+      # 30B IML-Max (OPT-IML-Max trained on all ~2000 tasks)
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT-IML/30b-iml-max/
+      - wget https://dl.fbaipublicfiles.com/optiml/aws.v7.2000.prop10.30b.eps_4096.docsep_2.mu6000.wu60.bsz8.clip1.0.fp32adam.rs1234.lr5e-05.pat_8000.ngpu64/mp2/checkpoint_1_6000.pt-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT-IML/30b-iml-max/checkpoint_6000-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/optiml/aws.v7.2000.prop10.30b.eps_4096.docsep_2.mu6000.wu60.bsz8.clip1.0.fp32adam.rs1234.lr5e-05.pat_8000.ngpu64/mp2/checkpoint_1_6000.pt-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT-IML/30b-iml-max/checkpoint_6000-model_part-1.pt --verbose
+      # 30B IML (OPT-IML trained on 1500 tasks with several tasks held-out for purposes of downstream evaluation)
+      - mkdir -p /mnt/model_storage_dir/pretrained_models/OPT-IML/30b-iml/
+      - wget https://dl.fbaipublicfiles.com/optiml/aws.v7.prop10.30b.eps_4096.docsep_2.mu4000.wu60.bsz8.clip1.0.fp32adam.rs1234.lr5e-05.pat_8000.ngpu64/mp2/checkpoint_1_4000.pt-model_part-0.pt -O /mnt/model_storage_dir/pretrained_models/OPT-IML/30b-iml/checkpoint_4000-model_part-0.pt --verbose
+      - wget https://dl.fbaipublicfiles.com/optiml/aws.v7.prop10.30b.eps_4096.docsep_2.mu4000.wu60.bsz8.clip1.0.fp32adam.rs1234.lr5e-05.pat_8000.ngpu64/mp2/checkpoint_1_4000.pt-model_part-1.pt -O /mnt/model_storage_dir/pretrained_models/OPT-IML/30b-iml/checkpoint_4000-model_part-1.pt --verbose
       - echo "Downloaded all models successfully!!"
+      

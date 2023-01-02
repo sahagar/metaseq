@@ -47,10 +47,9 @@ storage:
     mount_dir: /mnt/output_dir
 
 jobs:
-  - name: OPT_DEBUG_JOB
-    sku: 1xG16
+  - name: OPT_DEBUG_JOB_CPU
+    sku: 1xG0
     command:
       # code_dir=/tmp/code
       - set -ex
       - sleep infinity
-    process_count_per_node: 1

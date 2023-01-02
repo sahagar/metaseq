@@ -19,7 +19,12 @@ from pathlib import Path
 import metaseq
 from metaseq.utils import get_random_port
 from metaseq.launcher.tombyard import tombstones
-from metaseq.launcher.sweep import get_env_from_args
+from metaseq.launcher.opt_job_constants import (
+        ComputeEnvs,
+        DEFAULT_PARTITION,
+        DEFAULT_PREFIX,
+        DEFAULT_CPU_PER_TASK,
+    )
 
 try:
     import metaseq_internal
@@ -29,6 +34,20 @@ try:
 except ImportError:
     has_internal = False
 
+def get_env_from_args(args):
+    if args.azure:
+        return ComputeEnvs.AZURE
+    elif args.aws:
+        return ComputeEnvs.AWS
+    elif args.fair:
+        return ComputeEnvs.FAIR
+    elif args.rsc:
+        return ComputeEnvs.RSC
+    else:
+        raise NotImplementedError(
+            "Env not passed in! Please pass in one of: --azure, --aws, --fair, --rsc"
+        )
+
 
 def main(get_grid, postprocess_hyperparams, args):
     def dry_run(msg):
@@ -36,8 +55,8 @@ def main(get_grid, postprocess_hyperparams, args):
             print(f"| dry-run:  {msg}")
         return args.dry_run
 
-    if args.local:
-        args.num_nodes = 1
+    # if args.local:
+    #     args.num_nodes = 1
 
     # compute all possible hyperparameter configurations
     grid = get_grid(args)
@@ -148,15 +167,15 @@ def set_env(args, env, dry_run):
     if "OMP_NUM_THREADS" not in env:
         env["OMP_NUM_THREADS"] = "2"
     env["NCCL_ASYNC_ERROR_HANDLING"] = "1"
-    if args.local:
-        if not dry_run("start training locally"):
-            if "CUDA_VISIBLE_DEVICES" not in env:
-                env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, range(args.num_gpus)))
-            env["NCCL_DEBUG"] = DEFAULT_NCCL_DEBUG_LOCAL
-    else:
-        if args.num_nodes > 1:
-            env["NCCL_SOCKET_IFNAME"] = "^docker0,lo"
-            env["NCCL_DEBUG"] = DEFAULT_NCCL_DEBUG
+    # if args.local:
+    #     if not dry_run("start training locally"):
+    #         if "CUDA_VISIBLE_DEVICES" not in env:
+    #             env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, range(args.num_gpus)))
+    #         env["NCCL_DEBUG"] = DEFAULT_NCCL_DEBUG_LOCAL
+    # else:
+    if args.num_nodes > 1:
+        env["NCCL_SOCKET_IFNAME"] = "^docker0,lo"
+        env["NCCL_DEBUG"] = DEFAULT_NCCL_DEBUG
 
 
 def gen_train_command(
@@ -165,7 +184,7 @@ def gen_train_command(
     # generate train command
     train_cmd = [args.python, os.path.join(oss_destination, args.script)]
     train_cmd.extend(["--distributed-world-size", str(args.num_nodes * args.num_gpus)])
-    if args.num_nodes > 1 or (args.num_gpus > 1 and not args.local):
+    if args.num_nodes > 1 or (args.num_gpus > 1): # and not args.local):
         train_cmd.extend(
             [
                 "--distributed-port",
@@ -461,51 +480,62 @@ def launch_train(args, grid, grid_product, dry_run, postprocess_hyperparams):
             save_dir_key,
         )
 
-        train_log = os.path.join(save_dir, "train.log")
-        train_stderr = os.path.join(save_dir, "train.stderr.%j")  # %j = slurm job id
-        srun_cmd, srun_cmd_str = gen_srun_command_and_str(
-            args, save_dir_key, train_log, train_stderr, train_cmd
-        )
+        train_log = os.path.join(save_dir, "train.stdout.log")
+        train_stderr = os.path.join(save_dir, "train.stderr.log")
+        
+        print(f"running command: {train_cmd}\n")
+        with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env) as train_proc, \
+                open(train_log, "w") as train_log_h, \
+                open(train_stderr, "w") as train_stderr_h:
+            train_proc.wait()
+            stdout = train_proc.stdout.read().decode("utf-8")
+            stderr = train_proc.stderr.read().decode("utf-8")
+            print(stdout, file=train_log_h)
+            print(stderr, file=train_stderr_h)
 
-        job_id = None
-        if args.dry_run:
-            train_cmd_str = " ".join(train_cmd)
-            dry_run(f"train command: {train_cmd_str}")
-        if args.local:
-            local_run(args, env, train_cmd, dry_run)
-        else:
-            srun_cmd_str = srun_cmd_str + " &"
-            # build command
-            if not args.salloc:
-                job_name = f"{args.prefix}{save_dir_key}"
-                sbatch_cmd, sbatch_cmd_str = gen_sbatch_command_and_str(
-                    args,
-                    job_name,
-                    train_log,
-                    train_stderr,
-                    oss_destination,
-                    internal_destination,
-                    srun_cmd_str,
-                )
-            else:
-                sbatch_cmd = srun_cmd
-                sbatch_cmd_str = srun_cmd_str
-            if args.dry_run:
-                dry_run_batch(
-                    env, train_log, train_stderr, sbatch_cmd_str, sbatch_cmd, dry_run
-                )
-            else:
-                write_git_commit(train_log)
-                if args.rsc:
-                    internal.klist(train_log)
-                with open(train_log, "a") as train_log_h:
-                    job_id, stdout = run_batch(env, sbatch_cmd_str, sbatch_cmd)
-                    print(stdout, file=train_log_h)
-        if job_id is not None:
-            print("Launched {}".format(job_id))
-        if hasattr(args, "tombstonable"):
-            if args.tombstonable:
-                tombstones(job_id=job_id, base_dir=args.base_directory)
+        # srun_cmd, srun_cmd_str = gen_srun_command_and_str(
+        #     args, save_dir_key, train_log, train_stderr, train_cmd
+        # )
+
+        # job_id = None
+        # if args.dry_run:
+        #     train_cmd_str = " ".join(train_cmd)
+        #     dry_run(f"train command: {train_cmd_str}")
+        # if args.local:
+        #     local_run(args, env, train_cmd, dry_run)
+        # else:
+        #     srun_cmd_str = srun_cmd_str + " &"
+        #     # build command
+        #     if not args.salloc:
+        #         job_name = f"{args.prefix}{save_dir_key}"
+        #         sbatch_cmd, sbatch_cmd_str = gen_sbatch_command_and_str(
+        #             args,
+        #             job_name,
+        #             train_log,
+        #             train_stderr,
+        #             oss_destination,
+        #             internal_destination,
+        #             srun_cmd_str,
+        #         )
+        #     else:
+        #         sbatch_cmd = srun_cmd
+        #         sbatch_cmd_str = srun_cmd_str
+        #     if args.dry_run:
+        #         dry_run_batch(
+        #             env, train_log, train_stderr, sbatch_cmd_str, sbatch_cmd, dry_run
+        #         )
+        #     else:
+        #         write_git_commit(train_log)
+        #         if args.rsc:
+        #             internal.klist(train_log)
+        #         with open(train_log, "a") as train_log_h:
+        #             job_id, stdout = run_batch(env, sbatch_cmd_str, sbatch_cmd)
+        #             print(stdout, file=train_log_h)
+        # if job_id is not None:
+        #     print("Launched {}".format(job_id))
+        # if hasattr(args, "tombstonable"):
+        #     if args.tombstonable:
+        #         tombstones(job_id=job_id, base_dir=args.base_directory)
 
 
 def has_finished(save_dir):

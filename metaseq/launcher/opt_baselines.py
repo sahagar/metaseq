@@ -17,28 +17,21 @@ from metaseq.launcher.opt_job_constants import (
     VALID_SUBSETS,
 )
 from metaseq.launcher.sweep import (
-    hyperparam,
-    get_env_from_args,
-    main as sweep_main,
+    hyperparam, main as sweep_main,
 )
 
-try:
-    # internal logic denoting where data locations are
-    from metaseq_internal.constants import DATA_LOCATIONS
-except ImportError:
-    from metaseq.launcher.opt_job_constants import DATA_LOCATIONS
+import logging
+import sys
+import time
 
-# have to do this at the module level, unfortunately; unable to use args.<env>
-for _cluster, _folder in DATA_LOCATIONS.items():
-    if os.path.exists(_folder):
-        try:
-            import metaseq_internal  # noqa: F401
-            from metaseq_internal.fb_sweep.dependency_checks import *  # noqa
-        except ImportError:
-            print("\n\nmetaseq_internal not installed! Proceeding...")
-            pass
-        break
-
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=os.environ.get("LOGLEVEL", "INFO").upper(),
+    stream=sys.stdout,
+)
+logging.Formatter.converter = time.gmtime  # Enforce UTC timestamps
+logger = logging.getLogger(__name__)
 
 def add_extra_options_func(parser):
     # NOTE we shouldn't add new options here... track changes via git instead
@@ -51,10 +44,7 @@ def add_extra_options_func(parser):
         help="reset the dataloader to epoch 1",
     )
     parser.add_argument("--model-size", choices=MODEL_SIZES.keys(), required=True)
-    parser.add_argument(
-        "--no-save-params", action="store_true", help="avoid saving with hparams"
-    )
-
+    
     # Args related to benchmarking and profiling
     parser.add_argument(
         "--benchmark",
@@ -66,24 +56,25 @@ def add_extra_options_func(parser):
         default=False,
         action="store_true",
     )
-    parser.add_argument("--max-update", "--mu", type=int, default=None)
+    parser.add_argument("--max-updates", "--mu", type=int, default=None)
     parser.add_argument("--warmup-updates", type=int, default=None)
-    parser.add_argument("--max-epoch", "--me", type=int, default=None)
+    parser.add_argument("--max-epochs", "--me", type=int, default=None)
     parser.add_argument(
         "--disable-validation", action="store_true", help="skip doing validation"
     )
-    parser.add_argument(
-        "--circleci", action="store_true", help="running a baseline test on circleci"
-    )
+
+    parser.add_argument("--keep-last-epochs", type=int, default=3, help="keep last N epoch  checkpoints")
+    parser.add_argument("--keep-last-updates", type=int, default=-1, help="keep last N update checkpoints")
+    parser.add_argument("--save-interval-updates", type=int, default=2000)
     parser.add_argument("--validate-interval-updates", type=int, default=2000)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--model-parallel", type=int, default=None)
-    # parser.add_argument("--seq-len", type=int, default=None)
     parser.add_argument("--log-interval", type=int, default=1)
     parser.add_argument("--task", type=str, default="streaming_language_modeling")
     parser.add_argument("--vocab-filename", type=str, default="gpt2-vocab.json")
     parser.add_argument("--merges-filename", type=str, default="gpt2-merges.txt")
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--seq-len", type=int, default=None)
     parser.add_argument("--aim-repo", type=str, default=None)
 
 def get_grid(args):
@@ -93,58 +84,48 @@ def get_grid(args):
         valid_subsets = [""]
     else:    
         valid_subsets = args.valid_subsets # VALID_SUBSETS
-    if not args.benchmark:
-        if args.data is None:
-            cluster_env = get_env_from_args(args)
-            data_loc_by_env = DATA_LOCATIONS[cluster_env]
-            if args.circleci:
-                data_loc_by_env = "./gpu_tests/circleci"
-                valid_subsets = ["BookCorpusFair"]
-            args.data = os.path.join(data_loc_by_env, "corpus_dedup_10_10_1_0.05_exp29")
-            if os.path.exists(args.data):
-                DATA_ROOT = data_loc_by_env
-            else:
-                raise RuntimeError(
-                    "Where are you running this?! Check DATA_LOCATIONS or pass --data "
-                    "pointing to a directory with 'data' and 'tokenizers' folders."
-                )
-        else:
-            DATA_ROOT = args.data
 
     SEQ_LEN = 2048
-    # if args.seq_len:
-    #     SEQ_LEN = args.seq_len
+    EST_SEQ_LEN = SEQ_LEN
 
     size = MODEL_SIZES[args.model_size]
     # updates = 300B tokens / 2048 seq_len / 1024 batchsize
     
     total_gpus = args.num_gpus * args.num_nodes
 
+    if args.seq_len: SEQ_LEN = args.seq_len
+
     if args.lr:
         size.lr = args.lr
     elif args.batch_size:
         est_bz = (size.batch_size // total_gpus) // SEQ_LEN
         size.lr = size.lr * round((args.batch_size/est_bz), 6)
-        
+
+        if SEQ_LEN != EST_SEQ_LEN: size.lr = size.lr * round((SEQ_LEN/EST_SEQ_LEN), 6) 
+
     if args.model_parallel: size.model_parallel = args.model_parallel
     if args.batch_size: size.batch_size = args.batch_size
 
     # TODO: fix training to run with 1 gpu (see Enable sweep scripts to run with a single GPU #176)
     if args.num_gpus < 2:
-        raise ValueError("Need at least two gpus to run model parallel code")
+        raise ValueError(f"Need at least two gpus to run model parallel code. num_gpus={args.num_gpus}")
     if total_gpus < size.model_parallel:
         raise ValueError(
-            "Total gpus (num_gpus * num_nodes) must be great than model parallel factor"
+            f"Total gpus (num_gpus={args.num_gpus} * num_nodes={args.num_nodes}) must be greater than model parallel factor. mp={size.model_parallel}, total_gpus={total_gpus}"
         )
     if total_gpus % size.model_parallel != 0:
         raise ValueError(
-            "Total gpus (num_gpus * num_nodes) must be divisible by model parallel factor"
+            f"Total gpus (num_gpus * num_nodes) must be divisible by model parallel factor. mp={size.model_parallel}, total_gpus={total_gpus}"
+        )
+    if size.n_heads % size.model_parallel != 0:
+        raise ValueError(
+            f"Number of heads must be divisible by model parallel factor. mp={size.model_parallel}, n_heads={size.n_heads}"
         )
 
     total_gpus = (args.num_gpus * args.num_nodes) // size.model_parallel
     ddp_bsz = size.batch_size # (size.batch_size // total_gpus) // SEQ_LEN
-    total_updates = args.max_update
-    total_epochs = args.max_epoch
+    total_updates = args.max_updates
+    total_epochs = args.max_epochs
     if total_updates is None:
         total_updates = int(TOTAL_TRAIN_TOKENS)
     # warmup_updates = int(TOTAL_WARMUP_TOKENS) // size.batch_size
@@ -156,34 +137,22 @@ def get_grid(args):
     # default streaming_lm task config
     task_config = [
         hyperparam("--task", args.task),
-        hyperparam(
-            "--sample-break-mode",
-            "none",
-            save_dir_key=lambda val: f"bm_{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--vocab-filename",
-            args.vocab_filename,
-            save_dir_key=lambda _: "gpt2" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--merges-filename",
-            args.merges_filename,
-        ),
+        hyperparam("--sample-break-mode", "none"),
+        hyperparam("--vocab-filename", args.vocab_filename),
+        hyperparam("--merges-filename", args.merges_filename),
     ]
-
+    
     # separate task config for dummy_lm
     if args.benchmark:
         # Overrides for speed benchmarking
-        args.data = None
         task_config = [
-            hyperparam("--task", "dummy_lm", save_dir_key=lambda val: val),
-            hyperparam(
-                "--dict-size", 51200 - 4
-            ),  # TODO(susan): what is this -4 sorcery? relic of more nmt things?
-            hyperparam("--save-interval-epochs", 0),
-            hyperparam("--save-interval-updates", 0),
+            hyperparam("--task", "dummy_lm"),
+            hyperparam("--dict-size", 51200 - 4) # TODO(susan): what is this -4 sorcery? relic of more nmt things?
         ]
+    
+        args.save_interval_epochs = 0
+        args.save_interval_updates = 0
+
         total_updates = 50
         warmup_updates = 50
         log_interval = 5
@@ -193,37 +162,27 @@ def get_grid(args):
     if args.profile:
         grid += [hyperparam("--profile")]
 
-    no_save_params = args.no_save_params
-    args.snapshot_code = False
-
-    if not args.benchmark:
-        grid += [
-            hyperparam(
-                "--valid-subset", ",".join(f"valid/{ss}" for ss in valid_subsets)
-            ),
-            hyperparam("--save-interval-updates", 2000),
-        ]
-
     grid += [
+        hyperparam(
+            "--valid-subset", ",".join(f"valid/{ss}" for ss in valid_subsets)
+        ),
+        hyperparam("--save-interval-updates", args.save_interval_updates),
         hyperparam("--train-subset", "train"),
         hyperparam("--ignore-unused-valid-subsets"),
         hyperparam("--num-workers", 8),
         hyperparam("--num-workers-valid", 1),
         hyperparam("--validate-interval-updates", args.validate_interval_updates),
-        hyperparam(
-            "--memory-efficient-fp16",
-            save_dir_key=lambda val: "me_fp16" if not no_save_params else "",
-        ),
+        hyperparam("--memory-efficient-fp16"),
         hyperparam("--fp16-init-scale", 4),
+        
         # we set this for the main run but it's probably nt needed here
-        # hyperparam("--threshold-loss-scale", 0.25, save_dir_key=lambda val: f"minscale{val}"),
-        hyperparam(
-            "--ddp-backend",
-            "fully_sharded",
-            save_dir_key=lambda val: "fsdp" if not no_save_params else "",
-        ),
-        hyperparam("--no-reshard-after-forward", save_dir_key=lambda _: "zero2" if not no_save_params else ""),
+        # hyperparam("--threshold-loss-scale", 0.25),
+        
+        hyperparam("--ddp-backend", "fully_sharded"),
         hyperparam("--use-sharded-state"),
+        # ZeRO-2
+        hyperparam("--no-reshard-after-forward"),
+        
         hyperparam("--checkpoint-activations"),
         hyperparam("--model-parallel-size", size.model_parallel),
         hyperparam("--criterion", "vocab_parallel_cross_entropy"),
@@ -232,125 +191,51 @@ def get_grid(args):
         # Flags to match exact same initialization of Megatron code for exp 12.00
         hyperparam("--full-megatron-init"),
         hyperparam("--megatron-init-sigma", 0.006),
-        hyperparam(
-            "--activation-fn",
-            "relu",
-            save_dir_key=lambda x: x if not no_save_params else "",
-        ),
-        hyperparam(
-            "--arch",
-            "transformer_lm_megatron",
-            save_dir_key=lambda val: val if not no_save_params else "",
-        ),
+        hyperparam("--activation-fn", "relu"),
+        hyperparam("--arch", "transformer_lm_megatron"),
         hyperparam("--share-decoder-input-output-embed"),
-        hyperparam(
-            "--decoder-layers",
-            size.n_layers,
-            save_dir_key=lambda val: f"nlay{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--decoder-embed-dim",
-            size.emb_size,
-            save_dir_key=lambda val: f"emb{val}" if not no_save_params else "",
-        ),
+        
+        hyperparam("--decoder-layers", size.n_layers),
+        hyperparam("--decoder-embed-dim", size.emb_size),
         hyperparam("--decoder-ffn-embed-dim", size.ffn_size),
         hyperparam("--decoder-attention-heads", size.n_heads),
+        
         # Switch to learned position embeddings for exp 12.00, without scaling
-        hyperparam(
-            "--decoder-learned-pos",
-            save_dir_key=lambda _: "lrnpos" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--no-scale-embedding",
-            save_dir_key=lambda _: "0emb_scale" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--tokens-per-sample",
-            SEQ_LEN,
-            save_dir_key=lambda val: f"tps{val}" if not no_save_params else "",
-        ),
-        hyperparam("--optimizer", "adam", save_dir_key=lambda val: val if not no_save_params else ""),
+        hyperparam("--decoder-learned-pos"),
+        hyperparam("--no-scale-embedding"),
+        hyperparam("--tokens-per-sample", SEQ_LEN),
+        hyperparam("--optimizer", "adam"),
+        
         # GPT-3 uses "(0.9, 0.95)"
-        hyperparam(
-            "--adam-betas",
-            f"(0.9, 0.95)",
-            save_dir_key=lambda val: "b2_{}".format(eval(val)[1])
-            if not no_save_params
-            else "",
-        ),
+        hyperparam("--adam-betas", f"(0.9, 0.95)"),
+        
         # Sometimes lowering --adam-eps to 1e-6 can stabilize training
-        hyperparam(
-            "--adam-eps",
-            1e-8,
-            save_dir_key=lambda val: f"eps{val}" if not no_save_params else "",
-        ),
+        hyperparam("--adam-eps", 1e-8),
+        
         # GPT-3 used --clip-norm=1.0
-        hyperparam(
-            "--clip-norm",
-            1.0,
-            save_dir_key=lambda val: f"cl{val}" if not no_save_params else "",
-        ),
+        hyperparam("--clip-norm", 1.0),
+        
         hyperparam("--clip-norm-type", "l2"),
         hyperparam("--lr-scheduler", "polynomial_decay"),
-        hyperparam(
-            "--lr",
-            size.lr,
-            save_dir_key=lambda val: f"lr{val:.3g}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--end-learning-rate",
-            size.lr * 0.1,
-            save_dir_key=lambda val: f"endlr{val:.3g}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--warmup-updates",
-            warmup_updates,
-            save_dir_key=lambda val: f"wu{val}" if not no_save_params else "",
-        ),
+        hyperparam("--lr", size.lr),
+        hyperparam("--end-learning-rate", size.lr * 0.1),
+        hyperparam("--warmup-updates", warmup_updates),
         hyperparam("--total-num-update", total_updates),
-        hyperparam(
-            "--dropout",
-            0.1,
-            save_dir_key=lambda val: f"dr{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--attention-dropout",
-            0.1,
-            save_dir_key=lambda val: f"atdr{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--no-emb-dropout",
-            save_dir_key=lambda _: "0emb_dr" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--weight-decay",
-            0.1,
-            save_dir_key=lambda val: f"wd{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--batch-size",
-            ddp_bsz,
-            save_dir_key=lambda val: f"ms{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--update-freq",
-            1,
-            save_dir_key=lambda val: f"uf{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--max-update",
-            total_updates,
-            save_dir_key=lambda val: f"mu{val}" if not no_save_params else "",
-        ),
-        hyperparam(
-            "--seed",
-            1,
-            save_dir_key=lambda val: f"s{val}" if not no_save_params else "",
-        ),
+        hyperparam("--dropout", 0.1),
+        hyperparam("--attention-dropout", 0.1),
+        hyperparam("--no-emb-dropout"),
+        hyperparam("--weight-decay", 0.1),
+        hyperparam("--batch-size", ddp_bsz),
+        hyperparam("--update-freq", 1),
+        hyperparam("--max-update", total_updates),
+        hyperparam("--seed", 1),
         hyperparam("--log-format", "json"),
         hyperparam("--log-interval", log_interval),
         hyperparam("--required-batch-size-multiple", 1),
+        hyperparam("--keep-last-epochs", args.keep_last_epochs),
+        hyperparam("--keep-last-updates", args.keep_last_updates),
     ]
+    
     if args.restore_file:
         grid += [hyperparam("--restore-file", args.restore_file)]
     if args.reset_dataloader:
@@ -359,17 +244,11 @@ def get_grid(args):
     if args.disable_validation:
         grid += [hyperparam("--disable-validation")]
 
-    if args.max_epoch is not None:
-        grid += [
-            hyperparam(
-                "--max-epoch",
-                total_epochs,
-                save_dir_key=lambda val: f"me{val}" if not no_save_params else "",
-            )
-        ]
+    if args.max_epochs is not None:
+        grid += [hyperparam("--max-epoch", total_epochs)]
     if args.aim_repo:
         grid += [hyperparam("--aim-repo", args.aim_repo)]
-
+        
     return grid
 
 

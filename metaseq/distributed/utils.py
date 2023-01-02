@@ -12,10 +12,13 @@ import signal
 import socket
 import struct
 import subprocess
+from datetime import timedelta
 from argparse import Namespace
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
+
+from metaseq.distributed.get_pass import getuser
 
 import torch
 import torch.distributed as dist
@@ -23,12 +26,19 @@ from omegaconf import open_dict
 
 from metaseq.dataclass.configs import DistributedTrainingConfig, MetaseqConfig
 
+import sys, time
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=os.environ.get("LOGLEVEL", "INFO").upper(),
+    stream=sys.stdout,
+)
+logging.Formatter.converter = time.gmtime  # Enforce UTC timestamps
+logger = logging.getLogger(__name__)
+
 # Flag to indicate if we're using Megatron
 # NOTE: this is a temporary hack until we move away from Megatron's model parallel init
 _USE_MEGATRON = False
-
-
-logger = logging.getLogger(__name__)
 
 
 def is_master(cfg: DistributedTrainingConfig):
@@ -39,34 +49,41 @@ def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
     if cfg.distributed_init_method is not None:
         return
 
-    if cfg.distributed_port > 0:
-        # we can determine the init method automatically for Slurm
-        _infer_slurm_init(cfg)
-    elif all(
-        key in os.environ
-        for key in ["MASTER_ADDR", "MASTER_PORT", "WORLD_SIZE", "RANK", "LOCAL_RANK"]
-    ):
-        # support torch.distributed.launch
-        _infer_torch_distributed_launch_init(cfg)
-    elif cfg.distributed_world_size > 1 or force_distributed:
-        # fallback for single node with multiple GPUs
-        _infer_single_node_init(cfg)
-
+    _infer_torch_distributed_launch_init(cfg)
+    
     if not cfg.distributed_no_spawn:
         with open_dict(cfg):
             cfg.distributed_num_procs = min(
                 torch.cuda.device_count(), cfg.distributed_world_size
             )
 
+def get_master_address():
+    try:
+        logger.info(f"Trying to fetch master address from ~/.ssh/config")
+        # with open(f"/home/{getuser()}/.ssh/config") as f:
+        with open(f"~/.ssh/config") as f:
+            lines = f.readlines()
+        logger.info(f"Found ssh config: {lines}")
+        for i, line in enumerate(lines):
+            if "Host master" in line or "Host worker-0" in line:
+                return lines[i + 1].strip().split()[1]
+        raise RuntimeError("Failed to fetch master address")
+    except Exception:
+        logger.info(f"Failed to fetch master address from ~/.ssh/config")
+        return "localhost"
+
+def get_master_port():
+    return str(29510)
 
 def _infer_torch_distributed_launch_init(cfg: DistributedTrainingConfig):
-    cfg.distributed_init_method = "env://"
-    cfg.distributed_world_size = int(os.environ["WORLD_SIZE"])
-    cfg.distributed_rank = int(os.environ["RANK"])
-    cfg.device_id = int(os.environ["LOCAL_RANK"])
+    cfg.device_id = int(os.environ.get("LOCAL_RANK", "0"))
+    cfg.distributed_rank = int(os.environ.get("RANK", "0"))
+    cfg.distributed_world_size = int(os.environ.get("WORLD_SIZE", "1"))
+
+    cfg.distributed_init_method = os.environ.get("INIT_METHOD", "env://")
     # processes are created by torch.distributed.launch
     cfg.distributed_no_spawn = True
-
+    logger.info(f"Distributed Config Complete")
 
 def _infer_slurm_init(cfg: DistributedTrainingConfig):
     node_list = os.environ.get("SLURM_STEP_NODELIST")
@@ -119,6 +136,7 @@ def _infer_single_node_init(cfg: DistributedTrainingConfig):
 
 
 def distributed_init(cfg: MetaseqConfig):
+    logger.info(f"Initializing distributed training")
     if isinstance(cfg, Namespace):
         from metaseq.dataclass.utils import convert_namespace_to_omegaconf
 
@@ -126,21 +144,23 @@ def distributed_init(cfg: MetaseqConfig):
 
     # silence torch's distributed initialization info
     logging.getLogger("torch.distributed.distributed_c10d").setLevel(logging.WARNING)
-
+    
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         logger.warning("Distributed is already initialized, cannot initialize twice!")
     else:
-        logger.debug(
-            "distributed init (rank {}): {}".format(
+        logger.info(
+            "distributed init (rank {}, world size: {}): {}, backend: {}".format(
                 cfg.distributed_training.distributed_rank,
+                cfg.distributed_training.distributed_world_size,
                 cfg.distributed_training.distributed_init_method,
+                cfg.distributed_training.distributed_backend,
             )
         )
         dist.init_process_group(
             backend=cfg.distributed_training.distributed_backend,
             init_method=cfg.distributed_training.distributed_init_method,
             world_size=cfg.distributed_training.distributed_world_size,
-            rank=cfg.distributed_training.distributed_rank,
+            rank=cfg.distributed_training.distributed_rank
         )
         logger.info(
             "initialized host {} as rank {}".format(
@@ -154,6 +174,7 @@ def distributed_init(cfg: MetaseqConfig):
             dist.all_reduce(torch.zeros(1).cuda())
 
     cfg.distributed_training.distributed_rank = torch.distributed.get_rank()
+    logger.info(f"Initialized distributed training")
 
     # set global log level
     if is_master(cfg.distributed_training):
@@ -161,14 +182,11 @@ def distributed_init(cfg: MetaseqConfig):
     else:
         logging.getLogger().setLevel(logging.WARNING)
 
-    nodelist = os.environ.get("SLURM_STEP_NODELIST")
-    if nodelist:
-        logger.info(f"SLURM nodelist: {nodelist}")
-
     if (
         getattr(cfg.model, "arch", None) == "transformer_lm_megatron"
         or cfg.common.model_parallel_size > 1
     ):
+        logger.info("Initializing model parallel")
         try:
             from megatron.mpu import (
                 initialize_model_parallel,
@@ -197,6 +215,7 @@ def distributed_init(cfg: MetaseqConfig):
             _set_global_memory_buffer()
         model_part_number = get_model_parallel_rank()
         cfg.checkpoint.checkpoint_suffix += "-model_part-{0}".format(model_part_number)
+        logger.info(f"Initialized model parallel with {cfg.common.model_parallel_size} parts")
 
     return cfg.distributed_training.distributed_rank
 
@@ -278,20 +297,22 @@ def call_main(cfg: MetaseqConfig, main, **kwargs):
     if cfg.distributed_training.distributed_init_method is None:
         infer_init_method(cfg.distributed_training)
 
-    if cfg.distributed_training.distributed_init_method is not None:
-        # distributed training
-        if not cfg.distributed_training.distributed_no_spawn:
-            start_rank = cfg.distributed_training.distributed_rank
-            cfg.distributed_training.distributed_rank = None  # assign automatically
-            kwargs["start_rank"] = start_rank
-            return _spawn_helper(main, cfg, kwargs)
-        else:
-            return distributed_main(
-                cfg.distributed_training.device_id, main, cfg, kwargs
-            )
-    else:
-        # single GPU main
-        return main(cfg, **kwargs)
+    # distributed training
+    # if not cfg.distributed_training.distributed_no_spawn:
+    #     start_rank = cfg.distributed_training.distributed_rank
+    #     cfg.distributed_training.distributed_rank = None  # assign automatically
+    #     kwargs["start_rank"] = start_rank
+    #     logger.info("Starting distributed training with spawn")
+    #     return _spawn_helper(main, cfg, kwargs)
+    # else:
+    
+    logger.info("Starting distributed training with torch.distributed.launch")
+    return distributed_main(
+        cfg.distributed_training.device_id, main, cfg, kwargs
+    )
+    
+    # # single GPU main
+    # return main(cfg, **kwargs)
 
 
 def new_groups(grouped_ranks: List[List[int]]):

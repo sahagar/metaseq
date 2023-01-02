@@ -5,27 +5,30 @@
 
 import argparse
 import datetime
+import sys
 import os
 import subprocess
+import itertools
+import random
+import hashlib
+import logging
+import time
+from pathlib import Path
+from collections import OrderedDict
 from typing import Optional, List, Callable, MutableMapping
 from urllib.parse import urlparse
 
-try:
-    # internal logic denoting where data locations are
-    from metaseq_internal.constants import (
-        ComputeEnvs,
-        DEFAULT_PARTITION,
-        DEFAULT_PREFIX,
-        DEFAULT_CPU_PER_TASK,
-    )
-except ImportError:
-    from metaseq.launcher.opt_job_constants import (
-        ComputeEnvs,
-        DEFAULT_PARTITION,
-        DEFAULT_PREFIX,
-        DEFAULT_CPU_PER_TASK,
-    )
+import metaseq
+from metaseq.utils import get_random_port
 
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=os.environ.get("LOGLEVEL", "INFO").upper(),
+    stream=sys.stdout,
+)
+logging.Formatter.converter = time.gmtime  # Enforce UTC timestamps
+logger = logging.getLogger(__name__)
 
 class hyperparam(object):
     """Base class for defining hyperparameters."""
@@ -82,21 +85,6 @@ class hyperparam(object):
         if self.binary_flag:
             return self.save_dir_key(1) if self.current_value else None
         return self.save_dir_key(self.current_value)
-
-
-def get_env_from_args(args):
-    if args.azure:
-        return ComputeEnvs.AZURE
-    elif args.aws:
-        return ComputeEnvs.AWS
-    elif args.fair:
-        return ComputeEnvs.FAIR
-    elif args.rsc:
-        return ComputeEnvs.RSC
-    else:
-        raise NotImplementedError(
-            "Env not passed in! Please pass in one of: --azure, --aws, --fair, --rsc"
-        )
 
 
 def _get_args(add_extra_options_func=None, input_args: Optional[List[str]] = None):
@@ -267,109 +255,91 @@ def _get_args(add_extra_options_func=None, input_args: Optional[List[str]] = Non
     if add_extra_options_func is not None:  # mutates parser
         add_extra_options_func(parser)
     args = parser.parse_args(input_args)
-    args.azure = True
-
-    # Env check
-    assert (
-        sum([args.azure, args.aws, args.fair, args.rsc]) == 1
-    ), "Must pass an env, and only one env (--azure, --aws, --fair, or --rsc)!"
 
     # Set defaults based on env
-    env = get_env_from_args(args)
-    _modify_arg_defaults_based_on_env(env, args)
+    _modify_arg_defaults_based_on_env(args)
     return args
 
 
-def _modify_arg_defaults_based_on_env(env, args):
+def _modify_arg_defaults_based_on_env(args):
     # TODO(susan): move all this default logic into separate config file
-    default_partition = DEFAULT_PARTITION[env]
-    default_prefix = DEFAULT_PREFIX[env]
-
-    if env == ComputeEnvs.FAIR or env == ComputeEnvs.RSC:
-        default_checkpoint_dir = os.path.join(
-            default_prefix, os.environ["USER"], str(datetime.date.today())
-        )
-    else:
-        default_checkpoint_dir = os.path.join(
-            default_prefix,
-            "checkpoints"
-        )
-
-    default_cpu_per_task = DEFAULT_CPU_PER_TASK[env]
-
-    default_cpu_bind = "none"
-    if env == ComputeEnvs.AZURE:
-        default_cpu_bind = (
-            "mask_cpu:ffffff000000,ffffff000000,ffffff,ffffff,"
-            "ffffff000000000000000000,ffffff000000000000000000,"
-            "ffffff000000000000,ffffff000000000000"
-        )
-    elif env == ComputeEnvs.AWS:
-        default_cpu_bind = (
-            "mask_cpu:000000ffffff000000ffffff,000000ffffff000000ffffff,"
-            "000000ffffff000000ffffff,000000ffffff000000ffffff,"
-            "ffffff000000ffffff000000,ffffff000000ffffff000000,"
-            "ffffff000000ffffff000000,ffffff000000ffffff000000"
-        )
-    elif env == ComputeEnvs.FAIR:
-        default_cpu_bind = "map_ldom:0,0,0,0,1,1,1,1"
-
-    default_local_checkpoints_dir = None
-    if env == ComputeEnvs.AZURE:
-        azure_upload_path = os.environ.get("AZURE_BLOB_SAS_URL", "")
-        if azure_upload_path != "":
-            # write checkpoints to local scratch storage on each node
-            default_local_checkpoints_dir = os.path.join(
-                "/mnt/resource_nvme",
-                os.environ["USER"],
-                "checkpoints",
-                str(datetime.date.today()),
-            )
-
-            # then copy them to Azure blob storage
-            o = urlparse(azure_upload_path)
-            o = o._replace(
-                path=os.path.join(
-                    o.path, os.environ["USER"], str(datetime.date.today())
-                )
-            )
-            azure_upload_path = o.geturl()
-
-            # set upload path if not specified
-            if args.full_azure_upload_path is None:
-                args.full_azure_upload_path = azure_upload_path
-
-            # if needed, create a container for this user on the Azure blob account
-            cmd = [
-                "azcopy",  # TODO(susanz): requires azcopy to be installed.
-                "make",
-                o._replace(path=os.path.dirname(o.path)).geturl(),
-            ]
-            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    # assign default slurm partition
-    if args.partition is None:
-        args.partition = default_partition
-
+    default_checkpoint_dir = "checkpoints" # str(datetime.date.today())
+    
     # assign default checkpoint directory
     if args.checkpoints_dir is None:
         args.checkpoints_dir = default_checkpoint_dir
 
-    # assign default # cpus per task
-    if args.cpus_per_task is None:
-        args.cpus_per_task = str(default_cpu_per_task)
+def set_env(args, env):
+    # NCCL_ASYNC_ERROR_HANDLING allows failfast upon NCCL error.
+    # It only takes effect in torch 1.7+
+    if "NCCL_ASYNC_ERROR_HANDLING" not in env:
+        env["NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
-    # assign default cpu bind
-    if args.cpu_bind is None:
-        args.cpu_bind = default_cpu_bind
+    # https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html#nccl-ib-timeout
+    if "NCCL_IB_TIMEOUT" not in env:
+        env["NCCL_IB_TIMEOUT"] = "22"
 
-    # assign default local checkpoint dir
-    if args.local_checkpoints_dir is None:
-        args.local_checkpoints_dir = default_local_checkpoints_dir
+    # Avoid failure "Call to ibv_reg_mr failed" for NCCL2.4.x
+    if "NCCL_TREE_THRESHOLD" not in env:
+        env["NCCL_TREE_THRESHOLD"] = "0"
 
-    # assign base directory
-    args.base_directory = default_prefix
+    # Print NCCL info by default
+    if "NCCL_DEBUG" not in env:
+        env["NCCL_DEBUG"] = "INFO"
 
+    # NCCL speed up default
+    if "NCCL_NSOCKS_PERTHREAD" not in env:
+        env["NCCL_NSOCKS_PERTHREAD"] = "4"
+
+    if "NCCL_SOCKET_NTHREADS" not in env:
+        env["NCCL_SOCKET_NTHREADS"] = "2"
+
+    env["CUDA_VISIBLE_DEVICES"] = ",".join([str(i) for i in range(args.num_gpus)])
+    env["WORLD_SIZE"] = str(args.num_nodes * args.num_gpus)
+
+def gen_train_command(args, config, save_dir, env):
+    # generate train command
+    code_folder = str(Path(metaseq.__file__).parents[1])
+    # train_cmd = [args.python, os.path.join(code_folder, args.script)]
+    train_cmd = ["torchrun", f"--nnodes={args.num_nodes}", f"--nproc_per_node={args.num_gpus}", f"--node_rank={os.environ.get('RANK', 0)}", f"--master_addr={os.environ.get('MASTER_ADDR', 'localhost')}", "--master_port=29510", os.path.join(code_folder, args.script)]
+    train_cmd.extend(["--distributed-world-size", str(args.num_nodes * args.num_gpus)])
+
+    assert args.data is not None, "data path must be specified"
+    assert save_dir is not None, "save_dir must be specified"
+
+    train_cmd.extend([args.data])
+    train_cmd.extend(["--save-dir", save_dir])
+    train_cmd.extend(["--save-async"])
+    
+    if not args.no_wandb:
+        try:
+            import wandb
+        except ImportError:
+            wandb = None
+        if wandb or ("WANDB_API_KEY" in env and "WANDB_BASE_URL" in env):
+            if "--wandb-project" not in config:
+                project = args.prefix
+                train_cmd.extend(["--wandb-project", project])
+            if "WANDB_RUN_GROUP" not in env:
+                env["WANDB_RUN_GROUP"] = args.prefix
+            if "WANDB_RUN_ID" not in env:
+                env["WANDB_RUN_ID"] = hashlib.md5(save_dir.encode("utf-8")).hexdigest()
+            if "WANDB_RESUME" not in env:
+                env["WANDB_RESUME"] = "allow"
+
+    if not args.no_tensorboard:
+        if args.tensorboard_logdir is None:
+            tensorboard_logdir = os.path.join(save_dir, "tb")
+        else:
+            tensorboard_logdir = os.path.join(
+                args.tensorboard_logdir,
+                args.prefix,
+            )
+        train_cmd.extend(["--tensorboard-logdir", tensorboard_logdir])
+    
+    for hp in config.values():
+        train_cmd.extend(map(str, hp.get_cli_args()))
+    return train_cmd
 
 def main(
     get_grid: Callable[[argparse.Namespace], List[hyperparam]],
@@ -401,7 +371,73 @@ def main(
             `sys.argv[1:]`.
     """
     args = _get_args(add_extra_options_func, scheduler_args)
-    from .slurm import main as backend_main
+    from metaseq.launcher.slurm import main as backend_main
 
     get_grid = get_grid[args.grid] if args.grid is not None else get_grid
-    backend_main(get_grid, postprocess_hyperparams, args)
+    
+    grid = get_grid(args)
+    # grid_product = list(itertools.product(*[hp.values for hp in grid]))
+
+    # randomly shuffle configurations
+    random.seed(args.seed)
+    
+    # set environment
+    env = os.environ.copy()
+    set_env(args, env)
+
+    save_dir = os.path.join(args.checkpoints_dir, args.prefix)
+    env["METASEQ_SAVE_DIR"] = save_dir
+
+    # if args.distributed_rank == 0:
+    # create save directory if it doesn't exist
+    logger.info(f"creating save directory: {save_dir}")
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # start training
+    config = OrderedDict()
+    for hp in grid:
+        config[hp.name] = hp
+        config[hp.name].current_value = hp.values[0]
+
+    # postprocess hyperparams
+    postprocess_hyperparams(args, config)
+
+    # generate train command
+    train_cmd = gen_train_command(
+        args,
+        config,
+        save_dir,
+        env
+    )
+
+    train_stdout = os.path.join(save_dir, "train.log")
+    logger.info(f"running command: {train_cmd}")
+    logger.info(f"Train Log: {train_stdout}")
+
+    exception = None
+    try:
+        subprocess.run(train_cmd, check=True, env=env)
+    except Exception as e:
+        exception = e
+
+    # Re-throw exception if any
+    if exception:
+        # Exceptions printed here may not be caught.
+        # ITP searches for error pattern in last 2KB of the log. Errors from mpi
+        # jobs are not caught, causing 3 retries regardless of the error type.
+        # ITP is increasing log size limit to 1MB.
+        logger.error(exception)
+        sys.exit(1)
+
+    # train_proc = subprocess.Popen(train_cmd, env=env)
+    # train_proc.wait()
+
+    # with subprocess.Popen(train_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as train_proc, \
+    #         open(train_stdout, "w") as train_stdout_h:
+    #     train_proc.wait()
+    #     stdout = train_proc.stdout.read().decode("utf-8")
+    #     print(stdout, file=train_stdout_h)
+    #     if train_proc.returncode != 0:
+    #         logger.error("train command failed. Traceback:")
+    #         logger.error(stdout[stdout.rfind("Traceback"):])
+    #         sys.exit(1)
