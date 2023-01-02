@@ -182,7 +182,10 @@ def distributed_init(cfg: MetaseqConfig):
     else:
         logging.getLogger().setLevel(logging.WARNING)
 
-    if cfg.common.model_parallel_size > 1:
+    if (
+        getattr(cfg.model, "arch", None) == "transformer_lm_megatron"
+        or cfg.common.model_parallel_size > 1
+    ):
         logger.info("Initializing model parallel")
         try:
             from megatron.mpu import (
