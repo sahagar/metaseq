@@ -12,6 +12,7 @@ See docs/api.md for more information.
 """
 
 import os
+import sys
 import ast
 import queue
 import pkg_resources
@@ -34,7 +35,7 @@ from metaseq.distributed import utils as distributed_utils
 from metaseq.hub_utils import GeneratorInterface
 from metaseq.service.queue import PriorityQueueRingShard
 from metaseq.service.workers import WorkItem
-from metaseq.service.utils import get_my_ip, build_logger
+from metaseq.service.utils import get_my_ip
 from metaseq.service.responses import OAIResponse
 
 import importlib
