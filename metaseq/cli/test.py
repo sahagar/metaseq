@@ -19,6 +19,7 @@ import random
 import threading
 import traceback
 import argparse
+import logging
 
 import numpy as np
 import torch
@@ -62,7 +63,13 @@ cfg = None
 port = DEFAULT_PORT
 BATCH_QUEUE = PriorityQueueRingShard()
 
-logger = build_logger()
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=os.environ.get("LOGLEVEL", "INFO").upper(),
+    stream=sys.stdout,
+)
+logger = logging.getLogger("metaseq.cli.test")
 
 def _flatten_config(cfg: DictConfig):
     config = OmegaConf.to_container(cfg)
