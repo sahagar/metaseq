@@ -214,6 +214,7 @@ def worker_main(cfg1: MetaseqConfig):
         request_object = distributed_utils.broadcast_object(
             None, src_rank=0, group=distributed_utils.get_global_group()
         )
+    logger.info(cfg.distributed_training.distributed_rank)
 
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         logger.info(f"Worker engaged! {get_my_ip()}:{port}")

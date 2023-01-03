@@ -49,8 +49,17 @@ def infer_init_method(cfg: DistributedTrainingConfig, force_distributed=False):
     if cfg.distributed_init_method is not None:
         return
 
-    _infer_torch_distributed_launch_init(cfg)
-    
+    if all(
+        key in os.environ
+        for key in ["MASTER_ADDR", "WORLD_SIZE", "RANK", "LOCAL_RANK"]
+    ):
+        # support torch.distributed.launch
+        _infer_torch_distributed_launch_init(cfg)
+
+    elif cfg.distributed_world_size > 1 or force_distributed:
+        # fallback for single node with multiple GPUs
+        _infer_single_node_init(cfg)
+
     if not cfg.distributed_no_spawn:
         with open_dict(cfg):
             cfg.distributed_num_procs = min(
@@ -76,17 +85,12 @@ def get_master_port():
     return str(29510)
 
 def _infer_torch_distributed_launch_init(cfg: DistributedTrainingConfig):
-    if "LOCAL_RANK" in os.environ:
-        cfg.device_id = int(os.environ.get("LOCAL_RANK", "0"))
-    if "RANK" in os.environ:
-        cfg.distributed_rank = int(os.environ.get("RANK", "0"))
-    if "WORLD_SIZE" in os.environ:
-        cfg.distributed_world_size = int(os.environ.get("WORLD_SIZE", "1"))
-
-    cfg.distributed_init_method = os.environ.get("INIT_METHOD", "env://")
+    cfg.distributed_init_method = "env://"
+    cfg.distributed_world_size = int(os.environ["WORLD_SIZE"])
+    cfg.distributed_rank = int(os.environ["RANK"])
+    cfg.device_id = int(os.environ["LOCAL_RANK"])
     # processes are created by torch.distributed.launch
     cfg.distributed_no_spawn = True
-    logger.info(f"Distributed Config Complete")
 
 def _infer_slurm_init(cfg: DistributedTrainingConfig):
     node_list = os.environ.get("SLURM_STEP_NODELIST")
@@ -163,7 +167,7 @@ def distributed_init(cfg: MetaseqConfig):
             backend=cfg.distributed_training.distributed_backend,
             init_method=cfg.distributed_training.distributed_init_method,
             world_size=cfg.distributed_training.distributed_world_size,
-            rank=cfg.distributed_training.distributed_rank
+            rank=cfg.distributed_training.distributed_rank,
         )
         logger.info(
             "initialized host {} as rank {}".format(
@@ -177,8 +181,7 @@ def distributed_init(cfg: MetaseqConfig):
             dist.all_reduce(torch.zeros(1).cuda())
 
     cfg.distributed_training.distributed_rank = torch.distributed.get_rank()
-    logger.info(f"Initialized distributed training")
-
+    
     # set global log level
     if is_master(cfg.distributed_training):
         logging.getLogger().setLevel(logging.INFO)
@@ -232,11 +235,12 @@ def distributed_main(i, main, cfg: MetaseqConfig, kwargs):
         i = i + 1
     cfg.distributed_training.device_id = i
     if torch.cuda.is_available() and not cfg.common.cpu:
-        torch.cuda.set_device(cfg.distributed_training.device_id)
+        torch.cuda.set_device(os.environ.get("LOCAL_RANK", str(i)))
+        # torch.cuda.set_device(cfg.distributed_training.device_id)
         # This is temporary way of making microsoft Tutel happy, as it reads the local rank from
         # the env. To make it work in cleaner way, we might need to change their interfaces to be
         # able to pass local rank.
-        os.environ["LOCAL_RANK"] = str(cfg.distributed_training.device_id)
+        # os.environ["LOCAL_RANK"] = str(cfg.distributed_training.device_id)
     if cfg.distributed_training.distributed_rank is None:
         # start_rank is the rank of gpu 0 on this machine.
         cfg.distributed_training.distributed_rank = kwargs.pop("start_rank", 0) + i
@@ -300,23 +304,20 @@ def call_main(cfg: MetaseqConfig, main, **kwargs):
     if cfg.distributed_training.distributed_init_method is None:
         infer_init_method(cfg.distributed_training)
 
-    # distributed training
-    # if not cfg.distributed_training.distributed_no_spawn:
-    #     start_rank = cfg.distributed_training.distributed_rank
-    #     cfg.distributed_training.distributed_rank = None  # assign automatically
-    #     kwargs["start_rank"] = start_rank
-    #     logger.info("Starting distributed training with spawn")
-    #     return _spawn_helper(main, cfg, kwargs)
-    # else:
-    
-    logger.info("Starting distributed training with torch.distributed.launch")
-    return distributed_main(
-        cfg.distributed_training.device_id, main, cfg, kwargs
-    )
-    
-    # # single GPU main
-    # return main(cfg, **kwargs)
-
+    if cfg.distributed_training.distributed_init_method is not None:
+        # distributed training
+        if not cfg.distributed_training.distributed_no_spawn:
+            start_rank = cfg.distributed_training.distributed_rank
+            cfg.distributed_training.distributed_rank = None  # assign automatically
+            kwargs["start_rank"] = start_rank
+            return _spawn_helper(main, cfg, kwargs)
+        else:
+            return distributed_main(
+                cfg.distributed_training.device_id, main, cfg, kwargs
+            )
+    else:
+        # single GPU main
+        return main(cfg, **kwargs)
 
 def new_groups(grouped_ranks: List[List[int]]):
     groups = [dist.new_group(g) for g in grouped_ranks]
