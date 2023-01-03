@@ -54,6 +54,7 @@ else:
 DEFAULT_PORT = 46010
 MAX_BATCH_TOKENS = 3072
 MAX_SEQ_LEN = 2048
+MAX_BEAM = 16
 
 app = Flask(__name__)
 
@@ -310,9 +311,7 @@ def completions():
     if "n" not in generation_args:
         generation_args["n"] = 1
     if "best_of" not in generation_args:
-        generation_args["best_of"] = generation_args["n"]
-    if "beam_size" in generation_args:
-        MAX_BEAM = generation_args.pop("beam_size", 1)
+        generation_args["best_of"] = generation_args["n"]    
 
     # beam search
     if int(generation_args["best_of"]) > MAX_BEAM:
@@ -388,7 +387,7 @@ def cli_main():
     """
     Generation using trained model.
     """
-    global port, MODE, cfg, MAX_SEQ_LEN
+    global port, MODE, cfg, MAX_SEQ_LEN, MAX_BATCH_TOKENS
     parser = options.get_generation_parser()
     # dumb defaults overriding
     parser.set_defaults(
