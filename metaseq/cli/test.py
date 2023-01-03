@@ -53,9 +53,7 @@ else:
 
 DEFAULT_PORT = 46010
 MAX_BATCH_TOKENS = 3072
-MAX_TARGET_POSITIONS = 2048
 MAX_SEQ_LEN = 2048
-MAX_BEAM = 1
 
 app = Flask(__name__)
 
@@ -214,8 +212,7 @@ def worker_main(cfg1: MetaseqConfig):
         request_object = distributed_utils.broadcast_object(
             None, src_rank=0, group=distributed_utils.get_global_group()
         )
-    logger.info(cfg.distributed_training.distributed_rank)
-
+    
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         logger.info(f"Worker engaged! {get_my_ip()}:{port}")
         thread = threading.Thread(target=batching_loop, daemon=True)
@@ -247,19 +244,6 @@ def handle_exception(e):
     )
 
 
-def _validate_key(key):
-    # denylist a few placeholders various people have used
-    if key == "":
-        return False
-    if "YOUR_NAME_HERE" in key:
-        return False
-    if "$USER" in key:
-        return False
-    if "your-key-here" in key:
-        return False
-    return True
-
-
 def _create_error_response(msg, http_code, **others):
     error_dict = {
         "message": msg,
@@ -274,10 +258,7 @@ def _create_error_response(msg, http_code, **others):
 
 
 @app.route("/completions", methods=["POST"])
-@app.route("/v1/engines/<engine>/completions", methods=["POST"])
-@app.route("/v2/engines/<engine>/completions", methods=["POST"])
-@app.route("/engines/<engine>/completions", methods=["POST"])
-def completions(engine=None):
+def completions():
     # prompt can be 4 types:
     # - str. Basic case. Return one generation.
     # - list of ints. Pretokenized. Return one generation
@@ -330,6 +311,9 @@ def completions(engine=None):
         generation_args["n"] = 1
     if "best_of" not in generation_args:
         generation_args["best_of"] = generation_args["n"]
+    if "beam_size" in generation_args:
+        MAX_BEAM = generation_args.pop("beam_size", 1)
+
     # beam search
     if int(generation_args["best_of"]) > MAX_BEAM:
         logger.warning(
@@ -340,14 +324,14 @@ def completions(engine=None):
 
     ret_queue = queue.Queue()
     for i, prompt in enumerate(prompts):
-        gen_len = generation_args.get("max_tokens", 0)
-        if gen_len + len(prompt) + 1 > MAX_SEQ_LEN:
+        gen_len = generation_args.get("max_tokens", MAX_SEQ_LEN)
+        if gen_len + len(prompt) + 1 > MAX_BATCH_TOKENS:
             # cut off the prompt to always fit with number of generations we need
             # +1 to always have the EOS token
             logger.warning(
-                f"input too long, truncated to {MAX_SEQ_LEN - gen_len - 1} to avoid OOM"
+                f"input too long, truncated to {MAX_BATCH_TOKENS - gen_len - 1} to avoid OOM"
             )
-            prompt = prompt[-(MAX_SEQ_LEN - gen_len - 1) :]
+            prompt = prompt[-(MAX_BATCH_TOKENS - gen_len - 1) :]
         request_object = {"input": prompt, **generation_args}
         BATCH_QUEUE.put(
             WorkItem(
@@ -395,7 +379,7 @@ def extra_args(parser):
     parser.add_argument(
         "--model-dir", help="Trained checkpoint directory",
     )
-    parser.add_argument("--seq-len", type=int, default=2048, help="input sequence length")
+    parser.add_argument("--prompt-seq-len", type=int, default=256, help="prompt sequence length")
     parser.add_argument("--app-port", type=int, default=46010, help="app port")
     parser.add_argument("--app-index-page", type=str, default=None, help="app index page")
     return parser
@@ -404,7 +388,7 @@ def cli_main():
     """
     Generation using trained model.
     """
-    global port, MODE, cfg, MAX_SEQ_LEN, MAX_BEAM
+    global port, MODE, cfg, MAX_SEQ_LEN
     parser = options.get_generation_parser()
     # dumb defaults overriding
     parser.set_defaults(
@@ -422,19 +406,15 @@ def cli_main():
     args.distributed_world_size = args.num_gpus * args.num_nodes
     args.bpe_vocab = args.vocab_filename
     args.bpe_merges = args.merges_filename
-    args.buffer_size = args.batch_size * args.seq_len
-    args.tokens_per_sample = args.seq_len
-    args.max_tokens = args.batch_size * MAX_TARGET_POSITIONS
-    args.max_target_positions = MAX_TARGET_POSITIONS
+    args.buffer_size = 16 * MAX_BATCH_TOKENS
+    args.tokens_per_sample = MAX_SEQ_LEN
+    args.max_tokens = MAX_SEQ_LEN
+    args.max_target_positions = MAX_SEQ_LEN
     args.path = args.model_dir
     if args.app_index_page is not None:
         os.environ["DEMO_INDEXPAGE"] = args.app_index_page
     
     cfg = convert_namespace_to_omegaconf(args)
-
-    # Generation Parameters
-    MAX_SEQ_LEN = cfg.task.tokens_per_sample
-    MAX_BEAM = cfg.generation.beam
 
     # Optional arg overrides which influence model loading during inference
     INFERENCE_ARG_OVERRIDES = {}
