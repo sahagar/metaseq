@@ -20,7 +20,7 @@ from metaseq.launcher.sweep import (
     hyperparam, main as sweep_main,
 )
 
-import logging
+import logging  
 import sys
 import time
 
@@ -204,6 +204,7 @@ def get_grid(args):
         hyperparam("--decoder-learned-pos"),
         hyperparam("--no-scale-embedding"),
         hyperparam("--tokens-per-sample", SEQ_LEN),
+        hyperparam("--max-target-positions", EST_SEQ_LEN),
         hyperparam("--optimizer", "adam"),
         
         # GPT-3 uses "(0.9, 0.95)"

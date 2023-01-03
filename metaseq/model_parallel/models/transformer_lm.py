@@ -43,10 +43,9 @@ class ModelParallelTransformerLanguageModel(TransformerLanguageModel):
         # task.target_dictionary.pad_to_multiple_(args.model_parallel_size * 8)
 
         if getattr(args, "max_target_positions", None) is None:
-            # args.max_target_positions = getattr(
-            #     args, "tokens_per_sample", DEFAULT_MAX_TARGET_POSITIONS
-            # )
-            args.max_target_positions = 2048
+            args.max_target_positions = getattr(
+                args, "tokens_per_sample", DEFAULT_MAX_TARGET_POSITIONS
+            )
 
         embed_tokens = cls.build_embedding(
             args, task.source_dictionary, args.decoder_embed_dim
