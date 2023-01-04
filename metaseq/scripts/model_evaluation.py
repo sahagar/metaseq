@@ -7,7 +7,7 @@ from statistics import mean
 
 from torch.utils.data import DataLoader, SequentialSampler
 from metaseq.data import JsonlDataset
-from metaseq.metrics.parlai_utils import DialogMetrics
+from metaseq.generation_metrics.parlai_utils import DialogMetrics
 
 # url = "http://localhost:5000/evaluate"
 # headers = {"Content-Type": "application/json"}
