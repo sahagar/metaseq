@@ -311,7 +311,7 @@ class RougeMetric(AverageMetric):
             return None, None, None
 
         if RougeMetric._evaluator is None:
-            RougeMetric._evaluator = rouge.Rouge(metrics=["rouge-n", "rouge-l"], max_n=2)
+            RougeMetric._evaluator = rouge.Rouge(metrics=["rouge-n", "rouge-l"])
         try:
             scores = [RougeMetric._evaluator.get_scores(normalize_answer(guess), normalize_answer(a)) for a in answers]
         except LookupError:
