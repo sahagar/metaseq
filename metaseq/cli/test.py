@@ -199,6 +199,12 @@ def worker_main(cfg1: MetaseqConfig):
     global generator
     global MODE
 
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader"],
+            check=True,
+        )
+
     # make sure generations are stochastic since we have many workers
     MODE = "worker"
     cfg = cfg1
@@ -426,10 +432,6 @@ def cli_main():
     OmegaConf.save(
         config=_flatten_config(cfg),
         f=os.path.join(args.results_path, "config", "config.yml"),
-    )
-    subprocess.run(
-        ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader"],
-        check=True,
     )
 
     distributed_utils.call_main(cfg, worker_main)
