@@ -37,6 +37,7 @@ from metaseq.service.queue import PriorityQueueRingShard
 from metaseq.service.workers import WorkItem
 from metaseq.service.utils import get_my_ip
 from metaseq.service.responses import OAIResponse
+from metaseq.logging import metrics
 
 import importlib
 
@@ -426,6 +427,7 @@ def cli_main():
         config=_flatten_config(cfg),
         f=os.path.join(args.results_path, "config", "config.yml"),
     )
+    logger.info(metrics.get_nvidia_smi_gpu_memory_stats_str())
 
     distributed_utils.call_main(cfg, worker_main)
 
