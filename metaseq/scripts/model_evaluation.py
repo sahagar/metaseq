@@ -61,13 +61,12 @@ def generate_predictions(args):
             response = response.json()
 
             assert len(response['choices']) == (args.n * args.batch_size)
-            for i in range(len(response['choices']), 0, args.n):
+            for i in range(0, len(response['choices']), args.n):
                 predictions = response['choices'][i:i+args.n]
                 row = {
-                    "predictions": [p for p in predictions['text']]
+                    "predictions": [p['text'] for p in predictions]
                 }
                 out_f.write(json.dumps(row) + "\n")
-            if _ > 2: break
         out_f.close()
 
 if __name__ == "__main__":
