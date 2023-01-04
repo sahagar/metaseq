@@ -57,7 +57,7 @@ def generate_predictions(args):
         for idx, batch in enumerate(dataloader):
             request_data_template['prompt'] = batch['prompt']
             response = requests.post(url, json=request_data_template)
-            print(response)
+            print(response.json())
             break
 
 if __name__ == "__main__":
