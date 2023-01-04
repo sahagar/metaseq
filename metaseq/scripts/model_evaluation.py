@@ -14,28 +14,38 @@ from metaseq.data import JsonlDataset
 # response = requests.post(url, headers=headers, data=json.dumps(data))
 # print(response.json())
 
-def do_no_collate_fn(batch):
-    print(len(batch), batch[0])
-    return batch
+def json_collate_fn(batch):
+    return {
+        "prompt": [x['prompt'] for x in batch],
+        "label": [x['label'] for x in batch],
+    }
+
+def line_processor(json_line):
+    prompt, label = json_line["text"].split("<s>")
+    prompt += "<s>"
+    return {
+        "prompt": prompt,
+        "label": label,
+    }
 
 def generate_predictions(args):
     assert args.input_file.endswith(".jsonl")
     dataset = JsonlDataset(
         path=args.input_file,
-        tokenizer=None,
+        tokenizer=line_processor,
         epoch=1,
         data_subshard_count=1,
     )
     dataloader = DataLoader(dataset,
                     batch_size=args.batch_size, 
-                    collate_fn=do_no_collate_fn, 
+                    collate_fn=json_collate_fn, 
                     sampler=SequentialSampler(dataset),
                     num_workers=8,
                 )
 
     with open(args.prediction_file, "w", encoding="utf-8") as out_f:
         for idx, batch in enumerate(dataloader):
-            print(batch[0])
+            print(batch['prompt'][:2], batch['label'][:2])
             break
 
 
