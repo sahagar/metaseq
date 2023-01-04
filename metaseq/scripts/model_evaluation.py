@@ -65,7 +65,7 @@ def generate_predictions(args):
                 row = {
                     "predictions": [p['text'] for p in predictions]
                 }
-                out_f.write(json.dumps(row) + "\n")
+                out_f.write(json.dumps(row, ensure_ascii=False) + "\n")
         out_f.close()
 
 if __name__ == "__main__":
