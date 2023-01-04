@@ -60,7 +60,6 @@ def generate_predictions(args):
             response = requests.post(url, json=request_data_template)
             response = response.json()
 
-            assert len(response['choices']) == (args.n * args.batch_size)
             for i in range(0, len(response['choices']), args.n):
                 predictions = response['choices'][i:i+args.n]
                 row = {
