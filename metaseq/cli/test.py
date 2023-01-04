@@ -201,7 +201,7 @@ def worker_main(cfg1: MetaseqConfig):
 
     if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
         subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader"],
+            ["nvidia-smi"],
             check=True,
         )
 
