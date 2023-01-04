@@ -199,12 +199,6 @@ def worker_main(cfg1: MetaseqConfig):
     global generator
     global MODE
 
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        subprocess.run(
-            ["nvidia-smi"],
-            check=True,
-        )
-
     # make sure generations are stochastic since we have many workers
     MODE = "worker"
     cfg = cfg1
@@ -214,6 +208,12 @@ def worker_main(cfg1: MetaseqConfig):
 
     generator = GeneratorInterface(cfg)
     models = generator.load_model()  # noqa: F841
+
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
+        subprocess.run(
+            ["nvidia-smi"],
+            check=True,
+        )
 
     logger.info(f"loaded model {cfg.distributed_training.distributed_rank}")
     if torch.distributed.is_initialized():
