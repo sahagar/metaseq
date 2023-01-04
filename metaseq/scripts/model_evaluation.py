@@ -1,7 +1,7 @@
+import os
+import json
 import requests
 import argparse
-import os
-import itertools
 
 from torch.utils.data import DataLoader, SequentialSampler
 from metaseq.data import JsonlDataset
@@ -57,7 +57,7 @@ def generate_predictions(args):
         for idx, batch in enumerate(dataloader):
             request_data_template['prompt'] = batch['prompt']
             response = requests.post(url, json=request_data_template)
-            print(response.json())
+            json.dumps(response.json() + "\n", out_f)
             break
 
 if __name__ == "__main__":
