@@ -70,7 +70,7 @@ logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO").upper(),
     stream=sys.stdout,
 )
-logger = logging.getLogger("metaseq.cli.test")
+logger = logging.getLogger("metaseq.cli.test_server")
 
 def _flatten_config(cfg: DictConfig):
     config = OmegaConf.to_container(cfg)
