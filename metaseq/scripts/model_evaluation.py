@@ -3,9 +3,11 @@ import json
 import requests
 import argparse
 from tqdm import tqdm
+from statistics import mean
 
 from torch.utils.data import DataLoader, SequentialSampler
 from metaseq.data import JsonlDataset
+from metaseq.metrics.parlai_utils import DialogMetrics
 
 # url = "http://localhost:5000/evaluate"
 # headers = {"Content-Type": "application/json"}
@@ -63,10 +65,31 @@ def generate_predictions(args):
             for i in range(0, len(response['choices']), args.n):
                 predictions = response['choices'][i:i+args.n]
                 row = {
-                    "predictions": [p['text'] for p in predictions]
+                    "predictions": [p['text'] for p in predictions],
+                    "label": batch['label'][i//args.n],
                 }
                 out_f.write(json.dumps(row, ensure_ascii=False) + "\n")
         out_f.close()
+
+def calculate_generation_metrics(args):
+    metrics = DialogMetrics(metrics_list=args.metrics_list)
+    average_metrics = {}
+    with open(args.prediction_file, "r", encoding="utf-8") as in_f, open(args.metrics_file, "w", encoding="utf-8") as out_f:
+        for line in in_f:
+            row = json.loads(line)
+            m = metrics.evaluate_response(row['predictions'], [row['label']])
+            out_f.write(json.dumps(m, ensure_ascii=False) + "\n")
+            
+            for k,v in m.items():
+                if k not in average_metrics:
+                    average_metrics[k] = []
+                average_metrics[k].append(v)
+
+        for k,v in average_metrics.items():
+            average_metrics[k] = mean(v)
+        out_f.write(json.dumps(average_metrics, ensure_ascii=False) + "\n")
+        in_f.close()
+    out_f.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -87,9 +110,13 @@ if __name__ == "__main__":
     parser.add_argument("--best-of", type=int, default=1, help="beam size")
     parser.add_argument("--echo", type=bool, default=False, help="if true, returned text/tokens/scores includes the prompt.")
 
+    # Metrics
+    parser.add_argument("--metrics-list", type=str, default="bleu,rouge", help="comma separated list of metrics to calculate")
+
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.prediction_file), exist_ok=True)
     os.makedirs(os.path.dirname(args.metrics_file), exist_ok=True)
     
     generate_predictions(args)
+    calculate_generation_metrics(args)
