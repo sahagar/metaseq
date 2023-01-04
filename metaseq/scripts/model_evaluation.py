@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import argparse
+from tqdm import tqdm
 
 from torch.utils.data import DataLoader, SequentialSampler
 from metaseq.data import JsonlDataset
@@ -54,11 +55,17 @@ def generate_predictions(args):
     }
     url = f"http://{args.host}:{args.port}/completions"
     with open(args.prediction_file, "w", encoding="utf-8") as out_f:
-        for idx, batch in enumerate(dataloader):
+        for _, batch in enumerate(tqdm(dataloader)):
             request_data_template['prompt'] = batch['prompt']
             response = requests.post(url, json=request_data_template)
-            out_f.write(json.dumps(response.json()) + "\n")
-            break
+            response = response.json()
+
+            for i in range(len(response['choices']), 0, args.n):
+                predictions = response['choices'][i:i+args.n]
+                row = {
+                    "predictions": [p for p in predictions['text']]
+                }
+                out_f.write(json.dumps(row) + "\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
