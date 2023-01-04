@@ -22,8 +22,9 @@ def generate_predictions(args):
     )
 
     with open(args.prediction_file, "w", encoding="utf-8") as out_f:
-        for data in dataset:
-            print(data)
+        print(dataset)
+        for line in dataset:
+            print(line)
             break
 
 if __name__ == "__main__":
