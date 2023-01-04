@@ -77,7 +77,8 @@ def calculate_generation_metrics(args):
     with open(args.prediction_file, "r", encoding="utf-8") as in_f, open(args.metrics_file, "w", encoding="utf-8") as out_f:
         for line in in_f:
             row = json.loads(line)
-            m = metrics.evaluate_response(row['predictions'][0], [row['label']])
+            metrics.evaluate_response(row['predictions'][0], [row['label']])
+            m = metrics.report_recent()
             out_f.write(json.dumps(m, ensure_ascii=False) + "\n")
             
             for k,v in m.items():
