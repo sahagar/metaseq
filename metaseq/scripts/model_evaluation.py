@@ -5,6 +5,7 @@ import argparse
 import os
 import itertools
 
+from torch.utils.data import DataLoader, SequentialSampler
 from metaseq.data import JsonlDataset
 
 # url = "http://localhost:5000/evaluate"
@@ -13,9 +14,9 @@ from metaseq.data import JsonlDataset
 # response = requests.post(url, headers=headers, data=json.dumps(data))
 # print(response.json())
 
-def read_chunks(dataset, bz=16):
-    for i in range(0, len(dataset), bz):
-        yield dataset[i:i+bz]
+def do_no_collate_fn(batch):
+    print(len(batch), batch[0])
+    return batch
 
 def generate_predictions(args):
     assert args.input_file.endswith(".jsonl")
@@ -25,10 +26,15 @@ def generate_predictions(args):
         epoch=1,
         data_subshard_count=1,
     )
+    dataloader = DataLoader(dataset,
+                    batch_size=args.batch_size, 
+                    collate_fn=do_no_collate_fn, 
+                    sampler=SequentialSampler(dataset),
+                    num_workers=8,
+                )
 
     with open(args.prediction_file, "w", encoding="utf-8") as out_f:
-        for i in range(0, len(dataset), args.batch_size):
-            batch = dataset[i:i+args.batch_size]
+        for idx, batch in enumerate(dataloader):
             print(batch[0])
             break
 
