@@ -60,12 +60,15 @@ def generate_predictions(args):
             response = requests.post(url, json=request_data_template)
             response = response.json()
 
+            assert len(response['choices']) == (args.n * args.batch_size)
             for i in range(len(response['choices']), 0, args.n):
                 predictions = response['choices'][i:i+args.n]
                 row = {
                     "predictions": [p for p in predictions['text']]
                 }
                 out_f.write(json.dumps(row) + "\n")
+            if _ > 2: break
+        out_f.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
