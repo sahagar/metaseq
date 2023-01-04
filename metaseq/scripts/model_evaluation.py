@@ -1,5 +1,3 @@
-# Send json request to the model evaluation server
-
 import requests
 import argparse
 import os
@@ -43,11 +41,24 @@ def generate_predictions(args):
                     num_workers=8,
                 )
 
+    request_data_template = {
+        "prompt": [],
+        "min_tokens": args.min_tokens,
+        "max_tokens": args.max_tokens,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "logprobs": args.logprobs,
+        "n": args.n,
+        "best_of": args.best_of,
+        "echo": args.echo,
+    }
+    url = f"http://{args.host}:{args.port}/completions"
     with open(args.prediction_file, "w", encoding="utf-8") as out_f:
         for idx, batch in enumerate(dataloader):
-            print(batch['prompt'][:2], batch['label'][:2])
+            request_data_template['prompt'] = batch['prompt']
+            response = requests.post(url, json=request_data_template)
+            print(response)
             break
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -57,6 +68,17 @@ if __name__ == "__main__":
     parser.add_argument("--input-file", type=str, required=True)
     parser.add_argument("--prediction-file", type=str, required=True)
     parser.add_argument("--metrics-file", type=str, required=True)
+
+    # Generation Parameters
+    parser.add_argument("--min-tokens", type=int, default=1, help="blocks EOS until at least this many tokens is provided")
+    parser.add_argument("--max-tokens", type=int, default=512, help="forces EOS after this many tokens")
+    parser.add_argument("--temperature", type=float, default=0.0, help="softmax temperature")
+    parser.add_argument("--top-p", type=float, default=1.0, help="nucleus probability")
+    parser.add_argument("--logprobs", type=int, default=0, help="return this cutoff of the probability distribution")
+    parser.add_argument("--n", type=int, default=1, help="number of beams to return. must be <= best_of")
+    parser.add_argument("--best-of", type=int, default=1, help="beam size")
+    parser.add_argument("--echo", type=bool, default=False, help="if true, returned text/tokens/scores includes the prompt.")
+
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.prediction_file), exist_ok=True)
