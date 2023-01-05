@@ -79,6 +79,7 @@ def calculate_generation_metrics(args):
             row = json.loads(line)
             metrics.evaluate_response(row['predictions'][0], [row['label']])
             m = metrics.report_recent()
+            m = {k: v.value() for k,v in m.items()}
             out_f.write(json.dumps(m, ensure_ascii=False) + "\n")
             
             for k,v in m.items():
